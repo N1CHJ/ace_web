@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ACE Athlete Training</title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 600px; margin: 2rem auto; padding: 1rem; }
+        .container { display: flex; flex-direction: column; gap: 1rem; }
+        input, button { padding: 10px; font-size: 1rem; }
+        button { background: #007bff; color: white; border: none; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        #result video { max-width: 100%; border-radius: 8px; margin-top: 1rem; }
+        .status { margin-top: 1rem; font-weight: bold; color: #555; }
+        .tabs { display: flex; gap: 10px; margin-bottom: 1rem; }
+        .tab { padding: 8px 16px; background: #eee; cursor: pointer; border-radius: 4px; }
+        .tab.active { background: #333; color: white; }
+    </style>
+</head>
+<body>
+    <h1>🏋️ ACE Coach</h1>
+    
+    <div class="tabs">
+        <div class="tab active" onclick="setTask('analyze', this)">Analyze Form</div>
+        <div class="tab" onclick="setTask('ingest_reference', this)">Admin Ingest</div>
+    </div>
+
+    <div class="container">
+        <input type="text" id="exerciseName" placeholder="Exercise Name (e.g. squat)" value="squat">
+        <input type="file" id="videoFile" accept="video/*">
+        <button onclick="startProcessing()">Run Processing</button>
+    </div>
+
+    <div id="status" class="status"></div>
+    <div id="result"></div>
+    <div id="stats-output"></div>
+
+    <script src="script.js"></script>
+</body>
+</html>

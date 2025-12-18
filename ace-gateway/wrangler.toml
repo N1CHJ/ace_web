@@ -1,0 +1,6 @@
+name = "ace-gateway"
+main = "src/worker.js"
+compatibility_date = "2024-04-05"
+
+[vars]
+# We set secrets via command line, so leave this empty
