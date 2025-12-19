@@ -48,7 +48,7 @@ export default {
             return null;
         }
 
-        const gatewayUrl = `https://gateway.ai.cloudflare.com/v1/${env.CLOUDFLARE_ACCOUNT_ID}/ace-gateway/google-ai-studio/v1beta/models/gemini-1.5-flash:generateContent`;
+        const gatewayUrl = `https://gateway.ai.cloudflare.com/v1/${env.CLOUDFLARE_ACCOUNT_ID}/ace-gateway/google-ai-studio/v1/models/gemini-2.5-flash:generateContent`;
         const tiers_context = await getTiersContext();
 
         // 1. Granular Data Processing
