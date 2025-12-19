@@ -9,40 +9,27 @@ document.addEventListener('DOMContentLoaded', async () => {
 async function loadSports() {
     const select = document.getElementById('exerciseName');
     select.innerHTML = '<option>Loading sports...</option>';
-
     try {
         const res = await fetch(`${WORKER_URL}/config`);
-        if (!res.ok) throw new Error("Failed to load config");
+        if (!res.ok) throw new Error("Failed");
         const config = await res.json();
-        
         select.innerHTML = ''; 
-        
-        // 1. Add Existing Sports
         Object.keys(config).forEach(sportName => {
             const opt = document.createElement('option');
-            opt.value = sportName; 
-            opt.textContent = sportName;
+            opt.value = sportName; opt.textContent = sportName;
             select.appendChild(opt);
         });
-
-        // 2. Add "Create New" Option at the bottom
         const separator = document.createElement('option');
-        separator.disabled = true;
-        separator.textContent = "──────────";
+        separator.disabled = true; separator.textContent = "──────────";
         select.appendChild(separator);
-
         const newOpt = document.createElement('option');
-        newOpt.value = "NEW_SPORT_ENTRY";
-        newOpt.textContent = "➕ Create New Sport...";
+        newOpt.value = "NEW_SPORT_ENTRY"; newOpt.textContent = "➕ Create New Sport...";
         select.appendChild(newOpt);
-
     } catch (e) {
-        console.error("Config Error:", e);
         select.innerHTML = '<option value="Back Squat">Back Squat (Fallback)</option>';
     }
 }
 
-// Show/Hide Text Input based on Dropdown
 function checkCustomOption(selectElement) {
     const customContainer = document.getElementById('customInputContainer');
     if (selectElement.value === "NEW_SPORT_ENTRY") {
@@ -53,26 +40,17 @@ function checkCustomOption(selectElement) {
     }
 }
 
-// Helper: Title Case (e.g. "cricket bowl" -> "Cricket Bowl")
 function toTitleCase(str) {
-    return str.replace(
-        /\w\S*/g,
-        text => text.charAt(0).toUpperCase() + text.substring(1).toLowerCase()
-    );
+    return str.replace(/\w\S*/g, text => text.charAt(0).toUpperCase() + text.substring(1).toLowerCase());
 }
 
 function setTask(task, tab) {
     currentTask = task;
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     tab.classList.add('active');
-    
-    // Reset dropdown if switching tasks
-    const select = document.getElementById('exerciseName');
-    const customContainer = document.getElementById('customInputContainer');
-    
     if (task === 'analyze') {
-        // Hide custom input in analyze mode (usually users don't create sports)
-        customContainer.classList.add('hidden');
+        document.getElementById('customInputContainer').classList.add('hidden');
+        const select = document.getElementById('exerciseName');
         if (select.value === "NEW_SPORT_ENTRY") select.selectedIndex = 0;
     }
 }
@@ -84,29 +62,16 @@ async function startProcessing() {
     const statusDiv = document.getElementById('status');
     const resultDiv = document.getElementById('result');
     const statsDiv = document.getElementById('stats-output');
+    const feedbackDiv = document.getElementById('ai-feedback'); // New Div
 
-    // --- HANDLE CUSTOM SPORT ---
     if (exerciseName === "NEW_SPORT_ENTRY") {
         const rawName = document.getElementById('customSportName').value.trim();
-        if (!rawName) return alert("Please enter a name for the new sport.");
-        // Auto-format to Title Case for cleaner config
+        if (!rawName) return alert("Enter a name.");
         exerciseName = toTitleCase(rawName);
     }
 
-    // --- ADMIN CHECK ---
     if (currentTask === 'ingest_reference') {
-        const userPass = prompt("🔒 Admin Area: Please enter the ingestion password:");
-        if (userPass !== ADMIN_PASSWORD) {
-            alert("⛔ Access Denied: Incorrect Password.");
-            return;
-        }
-    } else {
-        // Prevent users from trying to analyze a "New" sport that doesn't exist yet
-        // (Though the logic handles it, it's good UX to block it)
-        if (select.value === "NEW_SPORT_ENTRY") {
-            alert("⚠️ You cannot analyze a new sport until you upload a reference video for it first.");
-            return;
-        }
+        if (prompt("🔒 Password:") !== ADMIN_PASSWORD) return alert("Incorrect Password.");
     }
 
     if (!fileInput.files[0]) return alert("Select a video!");
@@ -114,50 +79,28 @@ async function startProcessing() {
     statusDiv.innerText = "Starting upload...";
     resultDiv.innerHTML = "";
     if (statsDiv) statsDiv.innerHTML = "";
-    
+    if (feedbackDiv) feedbackDiv.innerHTML = "Waiting for AI Coach..."; // Reset feedback
+
     try {
         const file = fileInput.files[0];
-        statusDiv.innerText = "Uploading to Secure Storage...";
-        
-        // Upload (Worker will handle config update if needed)
         const uploadResponse = await fetch(`${WORKER_URL}/upload?sport=${encodeURIComponent(exerciseName)}&task=${currentTask}`, {
             method: "PUT",
-            headers: {
-                "Content-Type": file.type,
-                "X-File-Name": file.name
-            },
+            headers: { "Content-Type": file.type, "X-File-Name": file.name },
             body: file 
         });
-
         if (!uploadResponse.ok) throw new Error("Upload failed");
-        const uploadData = await uploadResponse.json();
-        const videoKey = uploadData.key;
-
-        console.log("Upload success, key:", videoKey);
+        const { key: videoKey } = await uploadResponse.json();
 
         statusDiv.innerText = "Queuing Analysis Job...";
-
         const predictResponse = await fetch(`${WORKER_URL}/predict`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                videoUrl: null,
-                videoKey: videoKey, 
-                task: currentTask,
-                exerciseName: exerciseName
-            })
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ videoKey, task: currentTask, exerciseName })
         });
 
         const data = await predictResponse.json();
-        if (data.detail) throw new Error(data.detail);
-        if (data.error) throw new Error(data.error);
-        
         pollStatus(data.id);
         
-        // If we just created a new sport, reload the dropdown so it appears
-        if (select.value === "NEW_SPORT_ENTRY") {
-            setTimeout(loadSports, 2000); 
-        }
+        if (select.value === "NEW_SPORT_ENTRY") setTimeout(loadSports, 2000); 
 
     } catch (e) {
         console.error(e);
@@ -169,6 +112,7 @@ async function pollStatus(id) {
     const statusDiv = document.getElementById('status');
     const resultDiv = document.getElementById('result');
     const statsDiv = document.getElementById('stats-output');
+    const feedbackDiv = document.getElementById('ai-feedback');
 
     while (true) {
         await new Promise(r => setTimeout(r, 2000));
@@ -179,24 +123,33 @@ async function pollStatus(id) {
             
             if (data.status === 'succeeded') {
                 const output = data.output;
+                
+                // 1. Render Video
                 if (output.video) {
                     resultDiv.innerHTML = `<h3>Analysis Result:</h3><video src="${output.video}" controls autoplay loop playsinline></video><p><a href="${output.video}" target="_blank">Download Video</a></p>`;
                 }
+                
+                // 2. Render Stats
                 if (output.stats && statsDiv) {
                     try {
                         const statsObj = JSON.parse(output.stats);
                         if (currentTask === 'ingest_reference') {
-                            statsDiv.innerHTML = `<div style="background:#eef; padding:10px; border-radius:4px; margin-top: 10px;"><strong>✅ Ingest Complete!</strong><br>Metadata Saved.<br><small>Key: ${statsObj.meta.name}</small></div>`;
+                            statsDiv.innerHTML = `<div style="background:#eef; padding:10px;"><strong>✅ Ingest Complete!</strong></div>`;
                         } else {
-                            let html = `<h3>Rep-by-Rep Scores</h3><table><thead><tr><th>Rep #</th><th>Score</th><th>Matched Ideal</th></tr></thead><tbody>`;
+                            let html = `<h3>Rep-by-Rep Scores</h3><table><thead><tr><th>Rep</th><th>Score</th><th>Match</th></tr></thead><tbody>`;
                             statsObj.reps.forEach(rep => {
-                                const scoreClass = rep.score >= 80 ? 'score-good' : 'score-bad';
-                                html += `<tr><td>${rep.rep}</td><td class="${scoreClass}">${rep.score}</td><td>${rep.match}</td></tr>`;
+                                html += `<tr><td>${rep.rep}</td><td class="${rep.score >= 80 ? 'score-good' : 'score-bad'}">${rep.score}</td><td>${rep.match}</td></tr>`;
                             });
                             html += `</tbody></table>`;
                             statsDiv.innerHTML = html;
+
+                            // 3. FETCH AI FEEDBACK (Only if analysis)
+                            if (feedbackDiv) {
+                                feedbackDiv.innerHTML = "<em>🤖 AI Coach is typing...</em>";
+                                pollFeedback(id); 
+                            }
                         }
-                    } catch (err) { console.error("Stats parsing error:", err); }
+                    } catch (err) { console.error(err); }
                 }
                 break;
             } else if (data.status === 'failed' || data.status === 'canceled') {
@@ -204,4 +157,31 @@ async function pollStatus(id) {
             }
         } catch (e) { console.log("Polling error:", e); }
     }
+}
+
+// New function to poll specifically for the Gemini text
+async function pollFeedback(id) {
+    const feedbackDiv = document.getElementById('ai-feedback');
+    let attempts = 0;
+    while (attempts < 10) { // Try for 20 seconds
+        await new Promise(r => setTimeout(r, 2000));
+        try {
+            const res = await fetch(`${WORKER_URL}/feedback?id=${id}`);
+            if (res.ok) {
+                const data = await res.json();
+                if (data.advice) {
+                    // Render Markdown-style (simple conversion)
+                    const html = data.advice.replace(/\n/g, '<br>').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+                    feedbackDiv.innerHTML = `<div style="background:#f0f8ff; border:1px solid #007bff; padding:15px; border-radius:8px; margin-top:20px;">
+                        <h3 style="margin-top:0;">🤖 Coach's Feedback</h3>
+                        <div style="line-height:1.6;">${html}</div>
+                        <small style="color:#777;">Generated via Gemini 1.5 Flash</small>
+                    </div>`;
+                    return;
+                }
+            }
+        } catch (e) { console.log("Waiting for feedback..."); }
+        attempts++;
+    }
+    feedbackDiv.innerHTML = "<em>(Coach is busy, try refreshing in a moment)</em>";
 }
