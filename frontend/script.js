@@ -185,7 +185,7 @@ async function pollFeedback(id) {
                     feedbackDiv.innerHTML = `<div style="background:#f0f8ff; border:1px solid #007bff; padding:15px; border-radius:8px; margin-top:20px;">
                         <h3 style="margin-top:0;">🤖 Coach's Feedback</h3>
                         <div style="line-height:1.6;">${html}</div>
-                        <small style="color:#777;">Generated via Gemini 1.5 Flash</small>
+                        <small style="color:#777;">Generated via AI</small>
                     </div>`;
                     return;
                 }
