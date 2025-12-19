@@ -14,39 +14,69 @@ export default {
 
     if (request.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
-    // --- HELPER: Fetch Config from R2 ---
+    // --- HELPER: Fetch Config ---
     async function getSystemConfig() {
       if (!env.ACE_BUCKET) throw new Error("No Bucket Bound");
       const obj = await env.ACE_BUCKET.get(CONFIG_KEY);
-      if (!obj) return null; 
+      if (!obj) return {}; // Return empty object if missing
       return await obj.json();
     }
 
+    // --- HELPER: Save Config ---
+    async function saveSystemConfig(config) {
+      await env.ACE_BUCKET.put(CONFIG_KEY, JSON.stringify(config, null, 2));
+    }
+
     // ------------------------------------------------------------------
-    // 0. CONFIG ROUTE (For Frontend)
+    // 0. CONFIG ROUTE
     // ------------------------------------------------------------------
     if (request.method === "GET" && url.pathname.endsWith("/config")) {
         const config = await getSystemConfig();
-        if (!config) return new Response("Config not found", { status: 404, headers: corsHeaders });
         return new Response(JSON.stringify(config), { headers: corsHeaders });
     }
 
     // ------------------------------------------------------------------
-    // 1. UPLOAD ROUTE
+    // 1. UPLOAD ROUTE (Auto-Update Config)
     // ------------------------------------------------------------------
     if (request.method === "PUT" && url.pathname.endsWith("/upload")) {
       const task = url.searchParams.get("task");
-      const sportName = url.searchParams.get("sport"); // "Golf Drive"
+      const sportName = url.searchParams.get("sport"); // "Cricket Bowl"
       
-      const config = await getSystemConfig();
+      let config = await getSystemConfig();
       let folderName = "uncategorized";
-      
-      // Strict Lookup: "Golf Drive" -> "Golf_Drive"
-      if (config && config[sportName] && config[sportName].folder) {
+
+      // 1. Check if sport exists
+      if (config && config[sportName]) {
+          // It exists, use the folder
           folderName = config[sportName].folder;
       } else {
-          // Fallback: Just replace spaces with underscores (Preserve Full Name)
+          // 2. NEW SPORT DETECTED!
+          // Create safe folder name: "Cricket Bowl" -> "Cricket_Bowl"
           folderName = sportName.trim().replace(/\s+/g, "_");
+          
+          // Create Default Settings
+          const newEntry = {
+              "folder": folderName,
+              "rotation": "None", // Default to auto-detect (handled by FFmpeg in predict.py)
+              "rep_settings": {
+                  "metric": "knee_angle", // Safe default
+                  "method": "peaks",
+                  "min_dist_frames": 30,
+                  "prominence": 20
+              },
+              "dtw_settings": {
+                  "anchor_metric": "knee_angle",
+                  "anchor_method": "min"
+              },
+              "safety_checks": [] // No checks initially
+          };
+
+          // Update Config Object
+          config[sportName] = newEntry;
+
+          // SAVE to R2 (This updates the dropdown for everyone!)
+          await saveSystemConfig(config);
+          console.log(`✅ Added new sport '${sportName}' to config.`);
       }
 
       const originalName = request.headers.get("X-File-Name") || "video.mp4";
@@ -62,16 +92,18 @@ export default {
       return new Response(JSON.stringify({ 
           success: true, 
           key: key, 
-          message: "Saved to Storage" 
+          message: "Saved to Storage & Config Updated" 
       }), { headers: corsHeaders });
     }
 
     // ------------------------------------------------------------------
-    // 2. PREDICT ROUTE (Injects Config)
+    // 2. PREDICT ROUTE
     // ------------------------------------------------------------------
     if (request.method === "POST" && url.pathname.endsWith("/predict")) {
       try {
         const body = await request.json();
+        
+        // Fetch the Latest Config (It might have just been updated!)
         const config = await getSystemConfig();
         const configStr = config ? JSON.stringify(config) : "{}";
 
@@ -97,7 +129,7 @@ export default {
               video_key: body.videoKey,
               task: body.task,
               exercise_name: body.exerciseName,
-              system_config: configStr, // PASS CONFIG
+              system_config: configStr, 
               r2_endpoint: env.R2_ENDPOINT,
               r2_bucket_name: "ace-athlete-data",
               r2_access_key: env.R2_ACCESS_KEY_ID,
@@ -114,7 +146,7 @@ export default {
     }
 
     // ------------------------------------------------------------------
-    // 3. WEBHOOK ROUTE (Saves using Config Folder)
+    // 3. WEBHOOK ROUTE
     // ------------------------------------------------------------------
     if (request.method === "POST" && url.pathname.endsWith("/webhook")) {
       const prediction = await request.json();
@@ -132,7 +164,6 @@ export default {
           }
       } catch(e) {}
 
-      // Fallback if config failed
       if (folderName === "uncategorized") {
            folderName = input.exercise_name.trim().replace(/\s+/g, "_");
       }
@@ -154,7 +185,6 @@ export default {
               const bytes = new Uint8Array(len);
               for (let i = 0; i < len; i++) bytes[i] = binaryString.charCodeAt(i);
               
-              // Filename can match the input name (e.g. Golf_Drive_123.pkl)
               const cleanName = input.exercise_name.trim().replace(/\s+/g, '_');
               const pklKey = `ideals/${folderName}/data/${cleanName}_${timestamp}.pkl`;
               const jsonKey = `ideals/${folderName}/data/${cleanName}_${timestamp}.json`;

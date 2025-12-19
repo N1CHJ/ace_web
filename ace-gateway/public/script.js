@@ -3,6 +3,10 @@ const WORKER_URL = "https://ace-gateway.ace-gateway.workers.dev/api";
 const ADMIN_PASSWORD = "jane"; 
 
 document.addEventListener('DOMContentLoaded', async () => {
+    loadSports();
+});
+
+async function loadSports() {
     const select = document.getElementById('exerciseName');
     select.innerHTML = '<option>Loading sports...</option>';
 
@@ -12,35 +16,95 @@ document.addEventListener('DOMContentLoaded', async () => {
         const config = await res.json();
         
         select.innerHTML = ''; 
+        
+        // 1. Add Existing Sports
         Object.keys(config).forEach(sportName => {
             const opt = document.createElement('option');
-            opt.value = sportName; // "Golf Drive"
+            opt.value = sportName; 
             opt.textContent = sportName;
             select.appendChild(opt);
         });
+
+        // 2. Add "Create New" Option at the bottom
+        const separator = document.createElement('option');
+        separator.disabled = true;
+        separator.textContent = "──────────";
+        select.appendChild(separator);
+
+        const newOpt = document.createElement('option');
+        newOpt.value = "NEW_SPORT_ENTRY";
+        newOpt.textContent = "➕ Create New Sport...";
+        select.appendChild(newOpt);
+
     } catch (e) {
         console.error("Config Error:", e);
         select.innerHTML = '<option value="Back Squat">Back Squat (Fallback)</option>';
     }
-});
+}
+
+// Show/Hide Text Input based on Dropdown
+function checkCustomOption(selectElement) {
+    const customContainer = document.getElementById('customInputContainer');
+    if (selectElement.value === "NEW_SPORT_ENTRY") {
+        customContainer.classList.remove('hidden');
+        document.getElementById('customSportName').focus();
+    } else {
+        customContainer.classList.add('hidden');
+    }
+}
+
+// Helper: Title Case (e.g. "cricket bowl" -> "Cricket Bowl")
+function toTitleCase(str) {
+    return str.replace(
+        /\w\S*/g,
+        text => text.charAt(0).toUpperCase() + text.substring(1).toLowerCase()
+    );
+}
 
 function setTask(task, tab) {
     currentTask = task;
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     tab.classList.add('active');
+    
+    // Reset dropdown if switching tasks
+    const select = document.getElementById('exerciseName');
+    const customContainer = document.getElementById('customInputContainer');
+    
+    if (task === 'analyze') {
+        // Hide custom input in analyze mode (usually users don't create sports)
+        customContainer.classList.add('hidden');
+        if (select.value === "NEW_SPORT_ENTRY") select.selectedIndex = 0;
+    }
 }
 
 async function startProcessing() {
-    const exerciseName = document.getElementById('exerciseName').value;
+    const select = document.getElementById('exerciseName');
+    let exerciseName = select.value;
     const fileInput = document.getElementById('videoFile');
     const statusDiv = document.getElementById('status');
     const resultDiv = document.getElementById('result');
     const statsDiv = document.getElementById('stats-output');
 
+    // --- HANDLE CUSTOM SPORT ---
+    if (exerciseName === "NEW_SPORT_ENTRY") {
+        const rawName = document.getElementById('customSportName').value.trim();
+        if (!rawName) return alert("Please enter a name for the new sport.");
+        // Auto-format to Title Case for cleaner config
+        exerciseName = toTitleCase(rawName);
+    }
+
+    // --- ADMIN CHECK ---
     if (currentTask === 'ingest_reference') {
         const userPass = prompt("🔒 Admin Area: Please enter the ingestion password:");
         if (userPass !== ADMIN_PASSWORD) {
             alert("⛔ Access Denied: Incorrect Password.");
+            return;
+        }
+    } else {
+        // Prevent users from trying to analyze a "New" sport that doesn't exist yet
+        // (Though the logic handles it, it's good UX to block it)
+        if (select.value === "NEW_SPORT_ENTRY") {
+            alert("⚠️ You cannot analyze a new sport until you upload a reference video for it first.");
             return;
         }
     }
@@ -55,16 +119,21 @@ async function startProcessing() {
         const file = fileInput.files[0];
         statusDiv.innerText = "Uploading to Secure Storage...";
         
-        // Pass "Golf Drive" exactly
-        const uploadResponse = await fetch(`${WORKER_URL}/upload?sport=${exerciseName}&task=${currentTask}`, {
+        // Upload (Worker will handle config update if needed)
+        const uploadResponse = await fetch(`${WORKER_URL}/upload?sport=${encodeURIComponent(exerciseName)}&task=${currentTask}`, {
             method: "PUT",
-            headers: { "Content-Type": file.type, "X-File-Name": file.name },
+            headers: {
+                "Content-Type": file.type,
+                "X-File-Name": file.name
+            },
             body: file 
         });
 
         if (!uploadResponse.ok) throw new Error("Upload failed");
         const uploadData = await uploadResponse.json();
         const videoKey = uploadData.key;
+
+        console.log("Upload success, key:", videoKey);
 
         statusDiv.innerText = "Queuing Analysis Job...";
 
@@ -82,7 +151,13 @@ async function startProcessing() {
         const data = await predictResponse.json();
         if (data.detail) throw new Error(data.detail);
         if (data.error) throw new Error(data.error);
+        
         pollStatus(data.id);
+        
+        // If we just created a new sport, reload the dropdown so it appears
+        if (select.value === "NEW_SPORT_ENTRY") {
+            setTimeout(loadSports, 2000); 
+        }
 
     } catch (e) {
         console.error(e);
@@ -90,7 +165,6 @@ async function startProcessing() {
     }
 }
 
-// ... pollStatus function remains the same ...
 async function pollStatus(id) {
     const statusDiv = document.getElementById('status');
     const resultDiv = document.getElementById('result');
@@ -126,7 +200,7 @@ async function pollStatus(id) {
                 }
                 break;
             } else if (data.status === 'failed' || data.status === 'canceled') {
-                statusDiv.innerText = "Analysis Failed/Canceled"; break;
+                statusDiv.innerText = "Analysis Failed"; break;
             }
         } catch (e) { console.log("Polling error:", e); }
     }

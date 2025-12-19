@@ -15,6 +15,10 @@
         .tabs { display: flex; gap: 10px; margin-bottom: 1rem; }
         .tab { padding: 8px 16px; background: #eee; cursor: pointer; border-radius: 4px; }
         .tab.active { background: #333; color: white; }
+        
+        /* New Styles for Custom Input */
+        .hidden { display: none; }
+        #customInputContainer { border-left: 3px solid #007bff; padding-left: 10px; margin-top: -10px; }
     </style>
 </head>
 <body>
@@ -26,12 +30,13 @@
     </div>
 
     <div class="container">
-        <select id="exerciseName">
-            <option value="Back Squat">Back Squat</option>
-            <option value="Bench Press">Bench Press</option>
-            <option value="Tennis Serve">Tennis Serve</option>
-            <option value="Golf Drive">Golf Drive</option>
+        <select id="exerciseName" onchange="checkCustomOption(this)">
+            <option>Loading sports...</option>
         </select>
+        
+        <div id="customInputContainer" class="hidden">
+            <input type="text" id="customSportName" placeholder="Type new sport name (e.g. Cricket Bowl)">
+        </div>
         
         <input type="file" id="videoFile" accept="video/*">
         <button onclick="startProcessing()">Run Processing</button>
