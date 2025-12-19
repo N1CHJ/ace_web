@@ -163,14 +163,24 @@ async function pollStatus(id) {
 async function pollFeedback(id) {
     const feedbackDiv = document.getElementById('ai-feedback');
     let attempts = 0;
-    while (attempts < 10) { // Try for 20 seconds
+    
+    // Increased to 20 attempts (approx 40 seconds)
+    while (attempts < 20) { 
         await new Promise(r => setTimeout(r, 2000));
         try {
             const res = await fetch(`${WORKER_URL}/feedback?id=${id}`);
             if (res.ok) {
                 const data = await res.json();
+                
+                // If the worker explicitly told us it failed/skipped
+                if (data.status === "skipped" || data.error) {
+                    feedbackDiv.innerHTML = `<div style="color:red; background:#fee; padding:10px; border-radius:4px;">
+                        ⚠️ AI Analysis Skipped: ${data.reason || "Unknown Error"}
+                    </div>`;
+                    return;
+                }
+
                 if (data.advice) {
-                    // Render Markdown-style (simple conversion)
                     const html = data.advice.replace(/\n/g, '<br>').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
                     feedbackDiv.innerHTML = `<div style="background:#f0f8ff; border:1px solid #007bff; padding:15px; border-radius:8px; margin-top:20px;">
                         <h3 style="margin-top:0;">🤖 Coach's Feedback</h3>
@@ -183,5 +193,5 @@ async function pollFeedback(id) {
         } catch (e) { console.log("Waiting for feedback..."); }
         attempts++;
     }
-    feedbackDiv.innerHTML = "<em>(Coach is busy, try refreshing in a moment)</em>";
+    feedbackDiv.innerHTML = "<em>(Coach timed out. Check Worker Logs.)</em>";
 }

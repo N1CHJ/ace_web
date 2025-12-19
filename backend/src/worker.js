@@ -38,8 +38,13 @@ export default {
 
     // --- HELPER: Call Gemini ---
     async function getCoachingTips(sport, stats, env) {
-        if (!env.GEMINI_API_KEY || !env.CLOUDFLARE_ACCOUNT_ID) {
-            console.log("Skipping AI: Missing Secrets");
+        // LOGGING: Check if secrets exist
+        if (!env.GEMINI_API_KEY) {
+            console.error("❌ ERROR: GEMINI_API_KEY is missing in secrets!");
+            return null;
+        }
+        if (!env.CLOUDFLARE_ACCOUNT_ID) {
+            console.error("❌ ERROR: CLOUDFLARE_ACCOUNT_ID is missing in secrets!");
             return null;
         }
 
@@ -105,15 +110,38 @@ export default {
         `;
 
         try {
+            console.log(`🚀 Sending Request to Gateway: ${gatewayUrl}`);
+            
             const response = await fetch(gatewayUrl, {
                 method: "POST",
-                headers: { "Content-Type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY },
-                body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+                headers: {
+                    "Content-Type": "application/json",
+                    "x-goog-api-key": env.GEMINI_API_KEY
+                },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: prompt }] }]
+                })
             });
+
+            if (!response.ok) {
+                const errText = await response.text();
+                console.error(`❌ Gateway Error (${response.status}):`, errText);
+                return null;
+            }
+
             const data = await response.json();
-            return data?.candidates?.[0]?.content?.parts?.[0]?.text || null;
+            const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+            
+            if (text) {
+                console.log("✅ Gemini Response Received!");
+                return text;
+            } else {
+                console.error("❌ Gemini response format was empty/unexpected:", JSON.stringify(data));
+                return null;
+            }
+
         } catch (e) {
-            console.error("Gemini Error:", e);
+            console.error("❌ EXCEPTION in getCoachingTips:", e);
             return null;
         }
     }
