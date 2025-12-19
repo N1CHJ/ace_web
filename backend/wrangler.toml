@@ -10,3 +10,18 @@ compatibility_date = "2024-04-05"
 binding = "ACE_BUCKET"           # <--- We will use this name in the code
 bucket_name = "ace-athlete-data" # <--- Your actual R2 bucket name
 preview_bucket_name = "ace-athlete-data" # (Optional: Needed if you run 'wrangler dev' with real data)
+
+[observability]
+enabled = false
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+persist = true
+invocation_logs = true
+
+[observability.traces]
+enabled = false
+persist = true
+head_sampling_rate = 1
