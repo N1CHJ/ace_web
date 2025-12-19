@@ -1,5 +1,5 @@
 let currentTask = 'analyze';
-const WORKER_URL = "https://ace-gateway.ace-gateway.workers.dev/api";
+const WORKER_URL = "https://ace-worker.ace-gateway.workers.dev/api";
 const ADMIN_PASSWORD = "jane"; 
 
 document.addEventListener('DOMContentLoaded', async () => {

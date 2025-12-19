@@ -1,6 +1,6 @@
 // src/worker.js
 
-const WEBHOOK_URL = "https://ace-gateway.ace-gateway.workers.dev/api/webhook";
+const WEBHOOK_URL = "https://ace-worker.ace-gateway.workers.dev/api/webhook";
 const CONFIG_KEY = "system/config.json";
 
 export default {
