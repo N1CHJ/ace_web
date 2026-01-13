@@ -79,7 +79,7 @@ async function startProcessing() {
     statusDiv.innerText = "Starting upload...";
     resultDiv.innerHTML = "";
     if (statsDiv) statsDiv.innerHTML = "";
-    if (feedbackDiv) feedbackDiv.innerHTML = "Waiting for AI Coach..."; // Reset feedback
+    if (feedbackDiv) feedbackDiv.innerHTML = "Waiting ACE..."; // Reset feedback
 
     try {
         const file = fileInput.files[0];
@@ -150,7 +150,7 @@ async function pollStatus(id) {
 
                             // 3. FETCH AI FEEDBACK (Only if analysis)
                             if (feedbackDiv) {
-                                feedbackDiv.innerHTML = "<em>🤖 AI Coach is typing...</em>";
+                                feedbackDiv.innerHTML = "<em>🤖 ACE is typing...</em>";
                                 pollFeedback(id); 
                             }
                         }
