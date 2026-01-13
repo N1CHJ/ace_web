@@ -138,7 +138,12 @@ async function pollStatus(id) {
                         } else {
                             let html = `<h3>Rep-by-Rep Scores</h3><table><thead><tr><th>Rep</th><th>Score</th><th>Match</th></tr></thead><tbody>`;
                             statsObj.reps.forEach(rep => {
-                                html += `<tr><td>${rep.rep}</td><td class="${rep.score >= 80 ? 'score-good' : 'score-bad'}">${rep.score}</td><td>${rep.match}</td></tr>`;
+                                // FIXED: Capitalized keys to match Python output
+                                html += `<tr>
+                                    <td>${rep.Rep}</td>
+                                    <td class="${rep.Score >= 80 ? 'score-good' : 'score-bad'}">${rep.Score}</td>
+                                    <td>${rep.Matched_Ideal || '-'}</td>
+                                </tr>`;
                             });
                             html += `</tbody></table>`;
                             statsDiv.innerHTML = html;

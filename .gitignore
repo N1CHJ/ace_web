@@ -166,3 +166,4 @@ dist
 !.env.example
 .wrangler/
 .vscode/
+./ace-gateway
