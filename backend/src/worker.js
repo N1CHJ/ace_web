@@ -58,20 +58,19 @@ export default {
         let valid_reps = 0;
 
         for (const rep of rep_data) {
-            const score = rep.score !== undefined ? rep.score : 0;
+            const score = rep.Score !== undefined ? rep.Score : 0;
+            
             if (typeof score === 'number') {
                 total_score += score;
                 valid_reps += 1;
             }
 
-            // Capture specific granular details for the prompt
             data_summary.push({
-                "Rep": rep.rep,
+                "Rep": rep.Rep,
                 "Score": score,
-                "Issues": rep.issues || [], 
-                // Flexible: If python sends breakdown later, we capture it.
-                "Breakdown": rep.breakdown || {}, 
-                "Comparison": rep.match ? `Matched with ${rep.match}` : "No match"
+                "Issues": rep.Issues || [], 
+                "Breakdown": rep.Breakdown || {}, 
+                "Comparison": rep.Matched_Ideal ? `Matched with ${rep.Matched_Ideal}` : "No match"
             });
         }
 
