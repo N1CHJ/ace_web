@@ -6,6 +6,48 @@ document.addEventListener('DOMContentLoaded', async () => {
     loadSports();
 });
 
+// --- NEW FUNCTION: Run Demo ---
+async function runDemo() {
+    const statusDiv = document.getElementById('status');
+    const resultDiv = document.getElementById('result');
+    const statsDiv = document.getElementById('stats-output');
+    const feedbackDiv = document.getElementById('ai-feedback');
+
+    statusDiv.innerText = "Checking demo cache...";
+    resultDiv.innerHTML = ""; statsDiv.innerHTML = ""; feedbackDiv.innerHTML = "";
+
+    try {
+        // 1. Check if we have cached demo results
+        const res = await fetch(`${WORKER_URL}/demo`);
+        if (!res.ok) throw new Error("Network error checking demo");
+        
+        const json = await res.json();
+
+        if (json.found) {
+            // CACHE HIT: Display instantly
+            statusDiv.innerText = "✅ Loaded Cached Demo";
+            
+            // Render Video via R2 proxy
+            const videoUrl = `${WORKER_URL}/file?key=${json.data.videoKey}`;
+            resultDiv.innerHTML = `<h3>Analysis Result (Demo):</h3><video src="${videoUrl}" controls autoplay loop playsinline></video><p><a href="${videoUrl}" target="_blank">Download Video</a></p>`;
+
+            // Render Stats
+            renderStats(json.data.stats);
+
+            // Fetch Feedback (cached by ID)
+            feedbackDiv.innerHTML = "<em>🤖 Fetching cached feedback...</em>";
+            pollFeedback(json.data.id);
+        } else {
+            // CACHE MISS: Run fresh processing using stored file
+            statusDiv.innerText = "⚡ First Run: Processing demo video...";
+            startProcessing(true); // Pass true for isDemo
+        }
+    } catch (e) {
+        statusDiv.innerText = `Demo Error: ${e.message}`;
+    }
+}
+// ------------------------------
+
 async function loadSports() {
     const select = document.getElementById('exerciseName');
     select.innerHTML = '<option>Loading sports...</option>';
@@ -55,33 +97,36 @@ function setTask(task, tab) {
     }
 }
 
-async function startProcessing() {
-    const select = document.getElementById('exerciseName');
-    let exerciseName = select.value;
+// Updated startProcessing to accept isDemo flag
+async function startProcessing(isDemo = false) {
+    let exerciseName = document.getElementById('exerciseName').value;
     const fileInput = document.getElementById('videoFile');
     const statusDiv = document.getElementById('status');
     const resultDiv = document.getElementById('result');
     const statsDiv = document.getElementById('stats-output');
-    const feedbackDiv = document.getElementById('ai-feedback'); // New Div
+    const feedbackDiv = document.getElementById('ai-feedback');
 
-    if (exerciseName === "NEW_SPORT_ENTRY") {
-        const rawName = document.getElementById('customSportName').value.trim();
-        if (!rawName) return alert("Enter a name.");
-        exerciseName = toTitleCase(rawName);
-    }
+    let videoKey = null;
 
-    if (currentTask === 'ingest_reference') {
-        if (prompt("🔒 Password:") !== ADMIN_PASSWORD) return alert("Incorrect Password.");
-    }
+    if (isDemo) {
+        // DEMO MODE: Use hardcoded existing file in R2
+        exerciseName = "Back Squat"; 
+        videoKey = "demo/multi_rep_squat.mp4"; 
+    } else {
+        // NORMAL MODE: Upload user file
+        if (exerciseName === "NEW_SPORT_ENTRY") {
+            const rawName = document.getElementById('customSportName').value.trim();
+            if (!rawName) return alert("Enter a name.");
+            exerciseName = toTitleCase(rawName);
+        }
 
-    if (!fileInput.files[0]) return alert("Select a video!");
+        if (currentTask === 'ingest_reference') {
+            if (prompt("🔒 Password:") !== ADMIN_PASSWORD) return alert("Incorrect Password.");
+        }
 
-    statusDiv.innerText = "Starting upload...";
-    resultDiv.innerHTML = "";
-    if (statsDiv) statsDiv.innerHTML = "";
-    if (feedbackDiv) feedbackDiv.innerHTML = "Waiting ACE..."; // Reset feedback
+        if (!fileInput.files[0]) return alert("Select a video!");
 
-    try {
+        statusDiv.innerText = "Starting upload...";
         const file = fileInput.files[0];
         const uploadResponse = await fetch(`${WORKER_URL}/upload?sport=${encodeURIComponent(exerciseName)}&task=${currentTask}`, {
             method: "PUT",
@@ -89,18 +134,31 @@ async function startProcessing() {
             body: file 
         });
         if (!uploadResponse.ok) throw new Error("Upload failed");
-        const { key: videoKey } = await uploadResponse.json();
+        const json = await uploadResponse.json();
+        videoKey = json.key;
+    }
 
-        statusDiv.innerText = "Queuing Analysis Job...";
+    // Common Processing Logic
+    resultDiv.innerHTML = "";
+    if (statsDiv) statsDiv.innerHTML = "";
+    if (feedbackDiv) feedbackDiv.innerHTML = "Waiting ACE..."; 
+
+    statusDiv.innerText = "Queuing Analysis Job...";
+    try {
         const predictResponse = await fetch(`${WORKER_URL}/predict`, {
             method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ videoKey, task: currentTask, exerciseName })
+            body: JSON.stringify({ 
+                videoKey: videoKey, 
+                task: currentTask, 
+                exerciseName: exerciseName,
+                is_demo: isDemo // Pass flag to worker
+            })
         });
 
         const data = await predictResponse.json();
         pollStatus(data.id);
         
-        if (select.value === "NEW_SPORT_ENTRY") setTimeout(loadSports, 2000); 
+        if (!isDemo && document.getElementById('exerciseName').value === "NEW_SPORT_ENTRY") setTimeout(loadSports, 2000); 
 
     } catch (e) {
         console.error(e);
@@ -108,10 +166,25 @@ async function startProcessing() {
     }
 }
 
+function renderStats(statsObj) {
+    const statsDiv = document.getElementById('stats-output');
+    if (!statsDiv) return;
+    
+    let html = `<h3>Rep-by-Rep Scores</h3><table><thead><tr><th>Rep</th><th>Score</th><th>Match</th></tr></thead><tbody>`;
+    statsObj.reps.forEach(rep => {
+        html += `<tr>
+            <td>${rep.Rep}</td>
+            <td class="${rep.Score >= 80 ? 'score-good' : 'score-bad'}">${rep.Score}</td>
+            <td>${rep.Matched_Ideal || '-'}</td>
+        </tr>`;
+    });
+    html += `</tbody></table>`;
+    statsDiv.innerHTML = html;
+}
+
 async function pollStatus(id) {
     const statusDiv = document.getElementById('status');
     const resultDiv = document.getElementById('result');
-    const statsDiv = document.getElementById('stats-output');
     const feedbackDiv = document.getElementById('ai-feedback');
 
     while (true) {
@@ -130,25 +203,15 @@ async function pollStatus(id) {
                 }
                 
                 // 2. Render Stats
-                if (output.stats && statsDiv) {
+                if (output.stats) {
                     try {
                         const statsObj = JSON.parse(output.stats);
                         if (currentTask === 'ingest_reference') {
-                            statsDiv.innerHTML = `<div style="background:#eef; padding:10px;"><strong>✅ Ingest Complete!</strong></div>`;
+                            document.getElementById('stats-output').innerHTML = `<div style="background:#eef; padding:10px;"><strong>✅ Ingest Complete!</strong></div>`;
                         } else {
-                            let html = `<h3>Rep-by-Rep Scores</h3><table><thead><tr><th>Rep</th><th>Score</th><th>Match</th></tr></thead><tbody>`;
-                            statsObj.reps.forEach(rep => {
-                                // FIXED: Capitalized keys to match Python output
-                                html += `<tr>
-                                    <td>${rep.Rep}</td>
-                                    <td class="${rep.Score >= 80 ? 'score-good' : 'score-bad'}">${rep.Score}</td>
-                                    <td>${rep.Matched_Ideal || '-'}</td>
-                                </tr>`;
-                            });
-                            html += `</tbody></table>`;
-                            statsDiv.innerHTML = html;
+                            renderStats(statsObj);
 
-                            // 3. FETCH AI FEEDBACK (Only if analysis)
+                            // 3. FETCH AI FEEDBACK
                             if (feedbackDiv) {
                                 feedbackDiv.innerHTML = "<em>🤖 ACE is typing...</em>";
                                 pollFeedback(id); 
@@ -164,12 +227,10 @@ async function pollStatus(id) {
     }
 }
 
-// New function to poll specifically for the Gemini text
 async function pollFeedback(id) {
     const feedbackDiv = document.getElementById('ai-feedback');
     let attempts = 0;
     
-    // Increased to 20 attempts (approx 40 seconds)
     while (attempts < 20) { 
         await new Promise(r => setTimeout(r, 2000));
         try {
@@ -177,7 +238,6 @@ async function pollFeedback(id) {
             if (res.ok) {
                 const data = await res.json();
                 
-                // If the worker explicitly told us it failed/skipped
                 if (data.status === "skipped" || data.error) {
                     feedbackDiv.innerHTML = `<div style="color:red; background:#fee; padding:10px; border-radius:4px;">
                         ⚠️ AI Analysis Skipped: ${data.reason || "Unknown Error"}

@@ -3,6 +3,7 @@
 const WEBHOOK_URL = "https://ace-worker.ace-gateway.workers.dev/api/webhook";
 const CONFIG_KEY = "system/config.json";
 const TIERS_KEY = "system/tiers.json"; 
+const DEMO_KEY = "system/demo.json"; // NEW
 
 export default {
   async fetch(request, env) {
@@ -146,13 +147,24 @@ export default {
     }
 
     // ------------------------------------------------------------------
-    // NEW ROUTE: GET /feedback?id={replicate_id}
+    // NEW ROUTE: GET /demo (Check if demo data is cached)
+    // ------------------------------------------------------------------
+    if (request.method === "GET" && url.pathname.endsWith("/demo")) {
+        const object = await env.ACE_BUCKET.get(DEMO_KEY);
+        if (!object) {
+            return new Response(JSON.stringify({ found: false }), { headers: corsHeaders });
+        }
+        const data = await object.json();
+        return new Response(JSON.stringify({ found: true, data: data }), { headers: corsHeaders });
+    }
+
+    // ------------------------------------------------------------------
+    // ROUTE: GET /feedback?id={replicate_id}
     // ------------------------------------------------------------------
     if (request.method === "GET" && url.pathname.endsWith("/feedback")) {
         const id = url.searchParams.get("id");
         if (!id) return new Response("Missing ID", { status: 400, headers: corsHeaders });
         
-        // Try to fetch the feedback file saved by the webhook
         const key = `feedback/${id}.json`;
         const object = await env.ACE_BUCKET.get(key);
         
@@ -165,7 +177,7 @@ export default {
     }
 
     // ------------------------------------------------------------------
-    // EXISTING ROUTES (Config, Upload, Predict, File, Status)
+    // EXISTING ROUTES
     // ------------------------------------------------------------------
     if (request.method === "GET" && url.pathname.endsWith("/config")) {
         const config = await getSystemConfig();
@@ -205,15 +217,25 @@ export default {
         const vRes = await fetch(`https://api.replicate.com/v1/models/${modelOwner}/${modelName}/versions`, { headers: { "Authorization": `Token ${env.REPLICATE_API_TOKEN}` } });
         const latestVersionId = (await vRes.json()).results[0].id;
 
+        // ** ADDED is_demo to input **
+        const inputPayload = {
+              video_key: body.videoKey, 
+              task: body.task, 
+              exercise_name: body.exerciseName, 
+              system_config: configStr, 
+              r2_endpoint: env.R2_ENDPOINT, 
+              r2_bucket_name: "ace-athlete-data", 
+              r2_access_key: env.R2_ACCESS_KEY_ID, 
+              r2_secret_key: env.R2_SECRET_ACCESS_KEY,
+              is_demo: body.is_demo || false // Pass through
+        };
+
         const response = await fetch("https://api.replicate.com/v1/predictions", {
           method: "POST",
           headers: { "Authorization": `Token ${env.REPLICATE_API_TOKEN}`, "Content-Type": "application/json" },
           body: JSON.stringify({
             version: latestVersionId, webhook: WEBHOOK_URL, webhook_events_filter: ["completed"],
-            input: {
-              video_key: body.videoKey, task: body.task, exercise_name: body.exerciseName, system_config: configStr, 
-              r2_endpoint: env.R2_ENDPOINT, r2_bucket_name: "ace-athlete-data", r2_access_key: env.R2_ACCESS_KEY_ID, r2_secret_key: env.R2_SECRET_ACCESS_KEY
-            },
+            input: inputPayload,
           }),
         });
         return new Response(JSON.stringify(await response.json()), { headers: corsHeaders });
@@ -236,13 +258,20 @@ export default {
       
       const timestamp = Date.now();
 
+      // Track if we saved an overlay to R2
+      let overlayKey = null;
+
       if (output.video) {
           const videoRes = await fetch(output.video);
-          await env.ACE_BUCKET.put(`overlays/${folderName}/result_${timestamp}.mp4`, await videoRes.arrayBuffer());
+          overlayKey = `overlays/${folderName}/result_${timestamp}.mp4`;
+          await env.ACE_BUCKET.put(overlayKey, await videoRes.arrayBuffer());
       }
 
+      // Track stats object
+      let statsObj = null;
+
       if (output.stats) {
-          const statsObj = JSON.parse(output.stats);
+          statsObj = JSON.parse(output.stats);
           
           if (statsObj.pkl_b64) {
               const cleanName = input.exercise_name.trim().replace(/\s+/g, '_');
@@ -255,8 +284,6 @@ export default {
                const coachingAdvice = await getCoachingTips(input.exercise_name, { reps: statsObj.reps }, env);
                
                if (coachingAdvice) {
-                   // KEY CHANGE: Save using the Replicate ID so frontend can find it!
-                   // prediction.id comes from the webhook payload
                    const feedbackKey = `feedback/${prediction.id}.json`;
                    await env.ACE_BUCKET.put(feedbackKey, JSON.stringify({
                        advice: coachingAdvice,
@@ -265,6 +292,18 @@ export default {
                }
           }
       }
+
+      // ** NEW: Save Demo Data if flag is present **
+      if (input.is_demo === true && overlayKey && statsObj) {
+          const demoData = {
+              id: prediction.id,
+              videoKey: overlayKey, // Persisted R2 key
+              stats: statsObj,
+              savedAt: new Date().toISOString()
+          };
+          await env.ACE_BUCKET.put(DEMO_KEY, JSON.stringify(demoData));
+      }
+
       return new Response("Webhook Processed", { status: 200 });
     }
 
