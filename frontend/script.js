@@ -1,4 +1,3 @@
-// script.js
 let currentTask = 'analyze';
 const WORKER_URL = "https://ace-worker.ace-gateway.workers.dev/api";
 const ADMIN_PASSWORD = "jane"; 
@@ -8,9 +7,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 async function runDemo() {
-    // Demo logic remains mostly the same, 
-    // but you might want to mock the 'urls' structure if using old demo data.
-    // For now, let's keep it simple or trigger a fresh run.
     alert("Demo Mode: For the updated 3-video view, please run a fresh upload!");
 }
 
@@ -114,7 +110,7 @@ async function startProcessing(isDemo = false) {
                 videoKey: videoKey, 
                 task: currentTask, 
                 exerciseName: exerciseName,
-                makeOverlay: makeOverlay, // <--- PASS CHECKBOX STATE
+                makeOverlay: makeOverlay, 
                 is_demo: isDemo 
             })
         });
@@ -153,15 +149,13 @@ async function pollStatus(id) {
     while (true) {
         await new Promise(r => setTimeout(r, 2000));
         try {
-            const res = await fetch(`${WORKER_URL}/status?id=${id}`);
+            // Added cache buster here too just in case
+            const res = await fetch(`${WORKER_URL}/status?id=${id}&_t=${Date.now()}`);
             const data = await res.json();
             statusDiv.innerText = `Status: ${data.status}`;
             
             if (data.status === 'succeeded') {
                 const output = data.output;
-                
-                // We DON'T render video here anymore. 
-                // We wait for pollFeedback to get the full URL set.
                 
                 if (output.stats) {
                     try {
@@ -192,64 +186,71 @@ async function pollFeedback(id) {
     const videoResultsDiv = document.getElementById('video-results');
     let attempts = 0;
     
-    while (attempts < 20) { 
+    // Increased attempts to 30 (60 seconds) just to be safe
+    while (attempts < 30) { 
         await new Promise(r => setTimeout(r, 2000));
         try {
-            const res = await fetch(`${WORKER_URL}/feedback?id=${id}`);
+            // FIX: Added "&_t=${Date.now()}" to force browser to ignore cache
+            const res = await fetch(`${WORKER_URL}/feedback?id=${id}&_t=${Date.now()}`);
+            
             if (res.ok) {
                 const data = await res.json();
                 
-                if (data.status === "pending") continue; // Keep waiting if file not ready
-
-                // --- 1. RENDER VIDEO GRID ---
-                if (data.urls) {
-                    let gridHtml = '<div class="video-grid">';
+                // If status is pending, we loop again.
+                // We do NOT use 'continue' here because we want to hit attempts++ at the bottom
+                if (data.status === "succeeded") {
                     
-                    // A. Uploaded Video
-                    if (data.urls.uploaded) {
-                        gridHtml += `
-                            <div class="video-card">
-                                <h4>Your Video</h4>
-                                <video src="${data.urls.uploaded}" controls playsinline loop></video>
-                            </div>`;
+                    // --- 1. RENDER VIDEO GRID ---
+                    if (data.urls) {
+                        let gridHtml = '<div class="video-grid">';
+                        
+                        if (data.urls.uploaded) {
+                            gridHtml += `
+                                <div class="video-card">
+                                    <h4>Your Video</h4>
+                                    <video src="${data.urls.uploaded}" controls playsinline loop></video>
+                                </div>`;
+                        }
+
+                        if (data.urls.overlay) {
+                            gridHtml += `
+                                <div class="video-card">
+                                    <h4>AI Overlay</h4>
+                                    <video src="${data.urls.overlay}" controls playsinline loop></video>
+                                </div>`;
+                        }
+
+                        if (data.urls.ideal) {
+                            gridHtml += `
+                                <div class="video-card">
+                                    <h4>Pro Reference</h4>
+                                    <video src="${data.urls.ideal}" controls playsinline loop></video>
+                                </div>`;
+                        }
+                        
+                        gridHtml += '</div>';
+                        if (videoResultsDiv) videoResultsDiv.innerHTML = gridHtml;
                     }
 
-                    // B. Overlay Video (Optional)
-                    if (data.urls.overlay) {
-                        gridHtml += `
-                            <div class="video-card">
-                                <h4>AI Overlay</h4>
-                                <video src="${data.urls.overlay}" controls playsinline loop></video>
-                            </div>`;
-                    }
-
-                    // C. Ideal Video (Best Match)
-                    if (data.urls.ideal) {
-                        gridHtml += `
-                            <div class="video-card">
-                                <h4>Pro Reference</h4>
-                                <video src="${data.urls.ideal}" controls playsinline loop></video>
-                            </div>`;
+                    // --- 2. RENDER ADVICE ---
+                    if (data.advice) {
+                        const html = data.advice.replace(/\n/g, '<br>').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+                        feedbackDiv.innerHTML = `<div style="background:#f0f8ff; border:1px solid #007bff; padding:15px; border-radius:8px; margin-top:20px;">
+                            <h3 style="margin-top:0;">🤖 Coach's Feedback</h3>
+                            <div style="line-height:1.6;">${html}</div>
+                            <small style="color:#777;">Generated via ACE</small>
+                        </div>`;
                     }
                     
-                    gridHtml += '</div>';
-                    videoResultsDiv.innerHTML = gridHtml;
+                    return; // EXIT FUNCTION ON SUCCESS
                 }
-
-                // --- 2. RENDER ADVICE ---
-                if (data.advice) {
-                    const html = data.advice.replace(/\n/g, '<br>').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-                    feedbackDiv.innerHTML = `<div style="background:#f0f8ff; border:1px solid #007bff; padding:15px; border-radius:8px; margin-top:20px;">
-                        <h3 style="margin-top:0;">🤖 Coach's Feedback</h3>
-                        <div style="line-height:1.6;">${html}</div>
-                        <small style="color:#777;">Generated via ACE</small>
-                    </div>`;
-                }
-                
-                return; // Done
             }
-        } catch (e) { console.log("Waiting for feedback..."); }
+        } catch (e) { 
+            console.error("Feedback polling error:", e); 
+            // We don't return here, we let it retry
+        }
         attempts++;
     }
-    feedbackDiv.innerHTML = "<em>(Coach timed out. Check Worker Logs.)</em>";
+    
+    feedbackDiv.innerHTML = "<em>(Coach timed out. Check console for errors.)</em>";
 }
