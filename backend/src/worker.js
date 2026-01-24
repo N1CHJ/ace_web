@@ -131,7 +131,7 @@ export default {
     }
 
     // ------------------------------------------------------------------
-    // ROUTE: GET /feedback (Now returns ALL URLs)
+    // ROUTE: GET /feedback
     // ------------------------------------------------------------------
     if (request.method === "GET" && url.pathname.endsWith("/feedback")) {
         const id = url.searchParams.get("id");
@@ -140,7 +140,6 @@ export default {
         const object = await env.ACE_BUCKET.get(`feedback/${id}.json`);
         
         if (!object) {
-            // Return pending status if file doesn't exist yet
             return new Response(JSON.stringify({ status: "pending" }), { headers: corsHeaders });
         }
         
@@ -148,7 +147,7 @@ export default {
     }
 
     // ------------------------------------------------------------------
-    // ROUTE: POST /predict (Reverted to FULL CONFIG + LOGGING)
+    // ROUTE: POST /predict
     // ------------------------------------------------------------------
     if (request.method === "POST" && url.pathname.endsWith("/predict")) {
       try {
@@ -167,7 +166,7 @@ export default {
               video_key: body.videoKey, 
               task: body.task, 
               exercise_name: body.exerciseName, 
-              system_config: JSON.stringify(fullConfig), // <--- Send FULL config
+              system_config: JSON.stringify(fullConfig), 
               make_overlay: body.makeOverlay || false,   
               r2_endpoint: env.R2_ENDPOINT, 
               r2_bucket_name: "ace-athlete-data", 
@@ -187,13 +186,11 @@ export default {
 
         const jsonResponse = await response.json();
 
-        // --- 🛑 DEBUG LOGGING: CHECK THIS IN 'wrangler tail' ---
         if (!response.ok) {
             console.error("❌ REPLICATE API ERROR:", JSON.stringify(jsonResponse, null, 2));
         } else {
             console.log("✅ REPLICATE STARTED. ID:", jsonResponse.id);
         }
-        // -------------------------------------------------------
 
         return new Response(JSON.stringify(jsonResponse), { headers: corsHeaders });
       } catch (err) { 
@@ -203,96 +200,108 @@ export default {
     }
 
     // ------------------------------------------------------------------
-    // ROUTE: POST /webhook (Consolidates URLs)
+    // ROUTE: POST /webhook (HEAVILY DEBUGGED)
     // ------------------------------------------------------------------
     if (request.method === "POST" && url.pathname.endsWith("/webhook")) {
-      const prediction = await request.json();
-      if (prediction.status !== "succeeded") return new Response("OK", { status: 200 });
-
-      const output = prediction.output;
-      const input = prediction.input;
-      const timestamp = Date.now();
-      
-      let folderName = input.exercise_name.trim().replace(/\s+/g, "_");
       try {
-          // Attempt to parse config just for folder name
-          if (input.system_config) {
-              const cfg = JSON.parse(input.system_config);
-              if (cfg[input.exercise_name] && cfg[input.exercise_name].folder) {
-                  folderName = cfg[input.exercise_name].folder;
+          const prediction = await request.json();
+          console.log(`🔹 Webhook Received for ID: ${prediction.id}`);
+
+          if (prediction.status !== "succeeded") {
+              console.log("🔸 Prediction not succeeded, ignoring.");
+              return new Response("OK", { status: 200 });
+          }
+
+          const output = prediction.output;
+          const input = prediction.input;
+          const timestamp = Date.now();
+          
+          let folderName = input.exercise_name.trim().replace(/\s+/g, "_");
+          try {
+              if (input.system_config) {
+                  const cfg = JSON.parse(input.system_config);
+                  if (cfg[input.exercise_name]?.folder) folderName = cfg[input.exercise_name].folder;
               }
+          } catch(e) {}
+
+          // 1. SAVE OVERLAY (If exists)
+          let overlayKey = null;
+          if (output.video) {
+              console.log("⬇️ Downloading Overlay Video...");
+              const videoRes = await fetch(output.video);
+              if (videoRes.ok) {
+                  overlayKey = `overlays/${folderName}/result_${timestamp}.mp4`;
+                  await env.ACE_BUCKET.put(overlayKey, await videoRes.arrayBuffer());
+                  console.log("✅ Overlay Saved:", overlayKey);
+              } else {
+                  console.error("❌ Failed to fetch overlay video:", videoRes.status);
+              }
+          } else {
+            console.log("ℹ️ No overlay video in output.");
           }
-      } catch(e) {}
 
-      // 1. SAVE OVERLAY (If exists)
-      let overlayKey = null;
-      if (output.video) {
-          const videoRes = await fetch(output.video);
-          overlayKey = `overlays/${folderName}/result_${timestamp}.mp4`;
-          await env.ACE_BUCKET.put(overlayKey, await videoRes.arrayBuffer());
-      }
-
-      // 2. PARSE STATS & ADVICE
-      let statsObj = null;
-      let coachingAdvice = null;
-      
-      if (output.stats) {
-          statsObj = JSON.parse(output.stats);
+          // 2. PARSE STATS & ADVICE
+          let statsObj = null;
+          let coachingAdvice = null;
           
-          if (statsObj.pkl_b64) {
-              // INGEST MODE
-              const cleanName = input.exercise_name.trim().replace(/\s+/g, '_');
-              const bytes = Uint8Array.from(atob(statsObj.pkl_b64), c => c.charCodeAt(0));
-              await env.ACE_BUCKET.put(`ideals/${folderName}/data/${cleanName}_${timestamp}.pkl`, bytes);
-              await env.ACE_BUCKET.put(`ideals/${folderName}/data/${cleanName}_${timestamp}.json`, JSON.stringify(statsObj.meta));
-          }
-
-          if (input.task === 'analyze') {
-               coachingAdvice = await getCoachingTips(input.exercise_name, { reps: statsObj.reps }, env);
-          }
-      }
-
-      // 3. CONSTRUCT RESULT PACKAGE (URLs + Stats + Advice)
-      if (input.task === 'analyze') {
-          const origin = new URL(request.url).origin;
-          
-          // A. User Video URL
-          const uploadedKey = output.uploaded_video_key || input.video_key;
-          const uploadedUrl = `${origin}/api/file?key=${uploadedKey}`;
-
-          // B. Overlay Video URL (Nullable)
-          const overlayUrl = overlayKey ? `${origin}/api/file?key=${overlayKey}` : null;
-
-          // C. Ideal Video URL (Best Match)
-          let idealUrl = null;
-          if (statsObj && statsObj.reps) {
-              // Find the best rep (Highest Score) that has a match
-              const bestRep = statsObj.reps
-                  .filter(r => r.Matched_Ideal_Key)
-                  .sort((a, b) => b.Score - a.Score)[0];
+          if (output.stats) {
+              statsObj = JSON.parse(output.stats);
+              console.log("📊 Stats parsed. Reps:", statsObj.reps?.length || 0);
               
-              if (bestRep) {
-                  idealUrl = `${origin}/api/file?key=${bestRep.Matched_Ideal_Key}`;
+              if (statsObj.pkl_b64) {
+                  const cleanName = input.exercise_name.trim().replace(/\s+/g, '_');
+                  const bytes = Uint8Array.from(atob(statsObj.pkl_b64), c => c.charCodeAt(0));
+                  await env.ACE_BUCKET.put(`ideals/${folderName}/data/${cleanName}_${timestamp}.pkl`, bytes);
+                  await env.ACE_BUCKET.put(`ideals/${folderName}/data/${cleanName}_${timestamp}.json`, JSON.stringify(statsObj.meta));
+                  console.log("✅ Ingest Data Saved");
+              }
+
+              if (input.task === 'analyze') {
+                  console.log("🧠 Requesting AI Advice...");
+                  coachingAdvice = await getCoachingTips(input.exercise_name, { reps: statsObj.reps }, env);
+                  console.log("✅ Advice Received:", coachingAdvice ? "Yes" : "Null");
               }
           }
 
-          // SAVE EVERYTHING to feedback/{id}.json
-          const resultPayload = {
-              status: "succeeded",
-              advice: coachingAdvice,
-              stats: statsObj, // Frontend can graph this
-              urls: {
-                  uploaded: uploadedUrl,
-                  overlay: overlayUrl,
-                  ideal: idealUrl
-              },
-              generated_at: new Date().toISOString()
-          };
-          
-          await env.ACE_BUCKET.put(`feedback/${prediction.id}.json`, JSON.stringify(resultPayload));
-      }
+          // 3. CONSTRUCT RESULT PACKAGE (URLs + Stats + Advice)
+          if (input.task === 'analyze') {
+              const origin = new URL(request.url).origin;
+              
+              const uploadedKey = output.uploaded_video_key || input.video_key;
+              const uploadedUrl = `${origin}/api/file?key=${uploadedKey}`;
+              const overlayUrl = overlayKey ? `${origin}/api/file?key=${overlayKey}` : null;
 
-      return new Response("Webhook Processed", { status: 200 });
+              let idealUrl = null;
+              if (statsObj && statsObj.reps) {
+                  const bestRep = statsObj.reps
+                      .filter(r => r.Matched_Ideal_Key)
+                      .sort((a, b) => b.Score - a.Score)[0];
+                  
+                  if (bestRep) {
+                      idealUrl = `${origin}/api/file?key=${bestRep.Matched_Ideal_Key}`;
+                  }
+              }
+
+              const resultPayload = {
+                  status: "succeeded",
+                  advice: coachingAdvice,
+                  stats: statsObj,
+                  urls: { uploaded: uploadedUrl, overlay: overlayUrl, ideal: idealUrl },
+                  generated_at: new Date().toISOString()
+              };
+              
+              console.log(`💾 Saving Feedback to: feedback/${prediction.id}.json`);
+              await env.ACE_BUCKET.put(`feedback/${prediction.id}.json`, JSON.stringify(resultPayload));
+              console.log("✅ Feedback Saved Successfully!");
+          }
+
+          return new Response("Webhook Processed", { status: 200 });
+
+      } catch (err) {
+          console.error("❌ WEBHOOK CRITICAL ERROR:", err);
+          console.error(err.stack);
+          return new Response("Webhook Error", { status: 500 });
+      }
     }
 
     // ... [Other routes /file and /status remain unchanged] ...
