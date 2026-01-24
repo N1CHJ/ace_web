@@ -131,7 +131,7 @@ export default {
     }
 
     // ------------------------------------------------------------------
-    // ROUTE: GET /feedback
+    // ROUTE: GET /feedback (FIXED)
     // ------------------------------------------------------------------
     if (request.method === "GET" && url.pathname.endsWith("/feedback")) {
         const id = url.searchParams.get("id");
@@ -143,7 +143,9 @@ export default {
             return new Response(JSON.stringify({ status: "pending" }), { headers: corsHeaders });
         }
         
-        return new Response(await object.json(), { headers: corsHeaders });
+        // FIX: Use object.body directly! 
+        // Previously "await object.json()" caused the "[object Object]" bug.
+        return new Response(object.body, { headers: corsHeaders });
     }
 
     // ------------------------------------------------------------------
