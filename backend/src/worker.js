@@ -95,18 +95,20 @@ export default {
         }
     }
 
-    // ... [GET /demo, /config, PUT /upload REMAIN UNCHANGED] ...
+    // --- ROUTE: GET /demo ---
     if (request.method === "GET" && url.pathname.endsWith("/demo")) {
         const object = await env.ACE_BUCKET.get(DEMO_KEY);
         if (!object) return new Response(JSON.stringify({ found: false }), { headers: corsHeaders });
         return new Response(JSON.stringify({ found: true, data: await object.json() }), { headers: corsHeaders });
     }
 
+    // --- ROUTE: GET /config ---
     if (request.method === "GET" && url.pathname.endsWith("/config")) {
         const config = await getSystemConfig();
         return new Response(JSON.stringify(config), { headers: corsHeaders });
     }
 
+    // --- ROUTE: PUT /upload ---
     if (request.method === "PUT" && url.pathname.endsWith("/upload")) {
         const task = url.searchParams.get("task");
         const sportName = url.searchParams.get("sport"); 
@@ -143,8 +145,7 @@ export default {
             return new Response(JSON.stringify({ status: "pending" }), { headers: corsHeaders });
         }
         
-        // FIX: Use object.body directly! 
-        // Previously "await object.json()" caused the "[object Object]" bug.
+        // Pass the raw body stream to avoid "[object Object]" serialization bug
         return new Response(object.body, { headers: corsHeaders });
     }
 
@@ -154,7 +155,7 @@ export default {
     if (request.method === "POST" && url.pathname.endsWith("/predict")) {
       try {
         const body = await request.json();
-        const fullConfig = await getSystemConfig(); // Fetch FULL config
+        const fullConfig = await getSystemConfig(); 
 
         const modelOwner = "n1chj"; 
         const modelName = "ace-athlete-engine";
@@ -202,7 +203,7 @@ export default {
     }
 
     // ------------------------------------------------------------------
-    // ROUTE: POST /webhook (HEAVILY DEBUGGED)
+    // ROUTE: POST /webhook (UPDATED WITH SMART URL LOOKUP)
     // ------------------------------------------------------------------
     if (request.method === "POST" && url.pathname.endsWith("/webhook")) {
       try {
@@ -238,8 +239,6 @@ export default {
               } else {
                   console.error("❌ Failed to fetch overlay video:", videoRes.status);
               }
-          } else {
-            console.log("ℹ️ No overlay video in output.");
           }
 
           // 2. PARSE STATS & ADVICE
@@ -248,20 +247,25 @@ export default {
           
           if (output.stats) {
               statsObj = JSON.parse(output.stats);
-              console.log("📊 Stats parsed. Reps:", statsObj.reps?.length || 0);
               
               if (statsObj.pkl_b64) {
+                  // INGEST MODE
                   const cleanName = input.exercise_name.trim().replace(/\s+/g, '_');
                   const bytes = Uint8Array.from(atob(statsObj.pkl_b64), c => c.charCodeAt(0));
+                  
+                  // Save Metadata including the source video key
+                  const metaPayload = statsObj.meta || {};
+                  metaPayload.video_key = input.video_key; // <--- CRITICAL: Save link to real video
+
                   await env.ACE_BUCKET.put(`ideals/${folderName}/data/${cleanName}_${timestamp}.pkl`, bytes);
-                  await env.ACE_BUCKET.put(`ideals/${folderName}/data/${cleanName}_${timestamp}.json`, JSON.stringify(statsObj.meta));
+                  await env.ACE_BUCKET.put(`ideals/${folderName}/data/${cleanName}_${timestamp}.json`, JSON.stringify(metaPayload));
                   console.log("✅ Ingest Data Saved");
               }
 
               if (input.task === 'analyze') {
                   console.log("🧠 Requesting AI Advice...");
                   coachingAdvice = await getCoachingTips(input.exercise_name, { reps: statsObj.reps }, env);
-                  console.log("✅ Advice Received:", coachingAdvice ? "Yes" : "Null");
+                  console.log("✅ Advice Received");
               }
           }
 
@@ -269,18 +273,48 @@ export default {
           if (input.task === 'analyze') {
               const origin = new URL(request.url).origin;
               
+              // A. User Video URL
               const uploadedKey = output.uploaded_video_key || input.video_key;
               const uploadedUrl = `${origin}/api/file?key=${uploadedKey}`;
+
+              // B. Overlay Video URL
               const overlayUrl = overlayKey ? `${origin}/api/file?key=${overlayKey}` : null;
 
+              // C. Ideal Video URL (The Smart Lookup)
               let idealUrl = null;
               if (statsObj && statsObj.reps) {
+                  // Find the best rep
                   const bestRep = statsObj.reps
-                      .filter(r => r.Matched_Ideal_Key)
+                      .filter(r => r.Matched_Ideal)
                       .sort((a, b) => b.Score - a.Score)[0];
                   
                   if (bestRep) {
-                      idealUrl = `${origin}/api/file?key=${bestRep.Matched_Ideal_Key}`;
+                      const pklName = bestRep.Matched_Ideal; // e.g., "Back_Squat_123.pkl"
+                      // Look for the metadata JSON file with the same name
+                      const jsonName = pklName.replace('.pkl', '.json');
+                      const metaKey = `ideals/${folderName}/data/${jsonName}`;
+                      
+                      try {
+                          console.log(`🔍 Looking up metadata: ${metaKey}`);
+                          const metaObj = await env.ACE_BUCKET.get(metaKey);
+                          if (metaObj) {
+                              const metaJson = await metaObj.json();
+                              // Check if we saved the explicit key during ingestion
+                              if (metaJson.video_key) {
+                                  idealUrl = `${origin}/api/file?key=${metaJson.video_key}`;
+                                  console.log(`✅ Found Ideal URL via metadata: ${idealUrl}`);
+                              } else {
+                                  // Fallback: Try guessing .mp4
+                                  const videoGuess = pklName.replace('.pkl', '.mp4');
+                                  idealUrl = `${origin}/api/file?key=ideals/${folderName}/videos/${videoGuess}`;
+                                  console.log(`⚠️ Metadata missing video_key. Used fallback: ${idealUrl}`);
+                              }
+                          } else {
+                              console.log("⚠️ Metadata file not found for ideal.");
+                          }
+                      } catch (e) {
+                          console.error("❌ Failed to resolve ideal video URL:", e);
+                      }
                   }
               }
 
@@ -292,7 +326,6 @@ export default {
                   generated_at: new Date().toISOString()
               };
               
-              console.log(`💾 Saving Feedback to: feedback/${prediction.id}.json`);
               await env.ACE_BUCKET.put(`feedback/${prediction.id}.json`, JSON.stringify(resultPayload));
               console.log("✅ Feedback Saved Successfully!");
           }
