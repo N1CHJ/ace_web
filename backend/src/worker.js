@@ -148,7 +148,7 @@ export default {
     }
 
     // ------------------------------------------------------------------
-    // ROUTE: POST /predict (Reverted to FULL CONFIG)
+    // ROUTE: POST /predict (Reverted to FULL CONFIG + LOGGING)
     // ------------------------------------------------------------------
     if (request.method === "POST" && url.pathname.endsWith("/predict")) {
       try {
@@ -167,7 +167,7 @@ export default {
               video_key: body.videoKey, 
               task: body.task, 
               exercise_name: body.exerciseName, 
-              system_config: JSON.stringify(fullConfig), // <--- Send FULL config again
+              system_config: JSON.stringify(fullConfig), // <--- Send FULL config
               make_overlay: body.makeOverlay || false,   
               r2_endpoint: env.R2_ENDPOINT, 
               r2_bucket_name: "ace-athlete-data", 
@@ -184,8 +184,22 @@ export default {
             input: inputPayload,
           }),
         });
-        return new Response(JSON.stringify(await response.json()), { headers: corsHeaders });
-      } catch (err) { return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: corsHeaders }); }
+
+        const jsonResponse = await response.json();
+
+        // --- 🛑 DEBUG LOGGING: CHECK THIS IN 'wrangler tail' ---
+        if (!response.ok) {
+            console.error("❌ REPLICATE API ERROR:", JSON.stringify(jsonResponse, null, 2));
+        } else {
+            console.log("✅ REPLICATE STARTED. ID:", jsonResponse.id);
+        }
+        // -------------------------------------------------------
+
+        return new Response(JSON.stringify(jsonResponse), { headers: corsHeaders });
+      } catch (err) { 
+          console.error("❌ WORKER EXCEPTION:", err.message);
+          return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: corsHeaders }); 
+      }
     }
 
     // ------------------------------------------------------------------
