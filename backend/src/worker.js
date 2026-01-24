@@ -268,11 +268,8 @@ export default {
           if (input.task === 'analyze') {
               const origin = new URL(request.url).origin;
               
-              // A. User Video URL
               const uploadedKey = output.uploaded_video_key || input.video_key;
               const uploadedUrl = `${origin}/api/file?key=${uploadedKey}`;
-
-              // B. Overlay Video URL
               const overlayUrl = overlayKey ? `${origin}/api/file?key=${overlayKey}` : null;
 
               // C. Ideal Video URL (The Super Smart Lookup)
@@ -284,37 +281,62 @@ export default {
                       .sort((a, b) => b.Score - a.Score)[0];
                   
                   if (bestRep) {
-                      const pklName = bestRep.Matched_Ideal;
-                      const jsonName = pklName.replace('.pkl', '.json');
+                      const pklName = bestRep.Matched_Ideal; // e.g., "Back_Squat_123.pkl"
+                      const baseName = pklName.replace('.pkl', '');
+                      const jsonName = `${baseName}.json`;
                       const metaKey = `ideals/${folderName}/data/${jsonName}`;
                       
                       try {
                           console.log(`🔍 Looking up metadata: ${metaKey}`);
                           const metaObj = await env.ACE_BUCKET.get(metaKey);
+                          let foundKey = null;
+
                           if (metaObj) {
                               const metaJson = await metaObj.json();
                               // 1. Try explicit link (New Data)
                               if (metaJson.video_key) {
-                                  idealUrl = `${origin}/api/file?key=${metaJson.video_key}`;
-                                  console.log(`✅ Found Ideal URL via metadata: ${idealUrl}`);
-                              } else {
-                                  throw new Error("Old data, no key");
+                                  foundKey = metaJson.video_key;
+                                  console.log(`✅ Metadata Match: ${foundKey}`);
                               }
-                          } else {
-                              throw new Error("Meta file missing");
+                          } 
+                          
+                          if (!foundKey) {
+                              // 2. Smart Guessing (Legacy Data)
+                              // Check for .mp4 AND .mov variants explicitly
+                              const mp4Key = `ideals/${folderName}/videos/${baseName}.mp4`;
+                              const movKey = `ideals/${folderName}/videos/${baseName}.mov`;
+                              
+                              const checkMp4 = await env.ACE_BUCKET.head(mp4Key);
+                              if (checkMp4) {
+                                  foundKey = mp4Key;
+                                  console.log(`✅ Smart Fallback: Found .mp4: ${foundKey}`);
+                              } else {
+                                  const checkMov = await env.ACE_BUCKET.head(movKey);
+                                  if (checkMov) {
+                                      foundKey = movKey;
+                                      console.log(`✅ Smart Fallback: Found .mov: ${foundKey}`);
+                                  }
+                              }
                           }
+
+                          if (!foundKey) {
+                              // 3. Absolute Last Resort: Grab ANY video (Only if specific match fails)
+                              console.log("⚠️ Exact match failed. Listing directory for fallback...");
+                              const list = await env.ACE_BUCKET.list({ prefix: `ideals/${folderName}/videos/`, limit: 1 });
+                              if (list.objects.length > 0) {
+                                  foundKey = list.objects[0].key;
+                                  console.log(`⚠️ Random Fallback: ${foundKey}`);
+                              }
+                          }
+
+                          if (foundKey) {
+                              idealUrl = `${origin}/api/file?key=${foundKey}`;
+                          } else {
+                              console.log("❌ No ideal video found after all attempts.");
+                          }
+
                       } catch (e) {
-                          // 2. FALLBACK: LIST FILES (Old Data Rescue)
-                          console.log("⚠️ Metadata lookup failed. Scanning directory for ANY match...");
-                          const list = await env.ACE_BUCKET.list({ prefix: `ideals/${folderName}/videos/` });
-                          if (list.objects.length > 0) {
-                              // Grab the first video we find. Better than nothing!
-                              const fallbackKey = list.objects[0].key;
-                              idealUrl = `${origin}/api/file?key=${fallbackKey}`;
-                              console.log(`✅ Fallback: Found video in folder: ${idealUrl}`);
-                          } else {
-                              console.log("❌ No videos found in ideals folder.");
-                          }
+                          console.error("❌ Failed to resolve ideal video URL:", e);
                       }
                   }
               }
