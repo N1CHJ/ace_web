@@ -1,3 +1,4 @@
+// script.js
 let currentTask = 'analyze';
 const WORKER_URL = "https://ace-worker.ace-gateway.workers.dev/api";
 const ADMIN_PASSWORD = "jane"; 
@@ -6,47 +7,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     loadSports();
 });
 
-// --- NEW FUNCTION: Run Demo ---
 async function runDemo() {
-    const statusDiv = document.getElementById('status');
-    const resultDiv = document.getElementById('result');
-    const statsDiv = document.getElementById('stats-output');
-    const feedbackDiv = document.getElementById('ai-feedback');
-
-    statusDiv.innerText = "Checking demo cache...";
-    resultDiv.innerHTML = ""; statsDiv.innerHTML = ""; feedbackDiv.innerHTML = "";
-
-    try {
-        // 1. Check if we have cached demo results
-        const res = await fetch(`${WORKER_URL}/demo`);
-        if (!res.ok) throw new Error("Network error checking demo");
-        
-        const json = await res.json();
-
-        if (json.found) {
-            // CACHE HIT: Display instantly
-            statusDiv.innerText = "✅ Loaded Cached Demo";
-            
-            // Render Video via R2 proxy
-            const videoUrl = `${WORKER_URL}/file?key=${json.data.videoKey}`;
-            resultDiv.innerHTML = `<h3>Analysis Result (Demo):</h3><video src="${videoUrl}" controls autoplay loop playsinline></video><p><a href="${videoUrl}" target="_blank">Download Video</a></p>`;
-
-            // Render Stats
-            renderStats(json.data.stats);
-
-            // Fetch Feedback (cached by ID)
-            feedbackDiv.innerHTML = "<em>🤖 Fetching cached feedback...</em>";
-            pollFeedback(json.data.id);
-        } else {
-            // CACHE MISS: Run fresh processing using stored file
-            statusDiv.innerText = "⚡ First Run: Processing demo video...";
-            startProcessing(true); // Pass true for isDemo
-        }
-    } catch (e) {
-        statusDiv.innerText = `Demo Error: ${e.message}`;
-    }
+    // Demo logic remains mostly the same, 
+    // but you might want to mock the 'urls' structure if using old demo data.
+    // For now, let's keep it simple or trigger a fresh run.
+    alert("Demo Mode: For the updated 3-video view, please run a fresh upload!");
 }
-// ------------------------------
 
 async function loadSports() {
     const select = document.getElementById('exerciseName');
@@ -97,23 +63,20 @@ function setTask(task, tab) {
     }
 }
 
-// Updated startProcessing to accept isDemo flag
 async function startProcessing(isDemo = false) {
     let exerciseName = document.getElementById('exerciseName').value;
     const fileInput = document.getElementById('videoFile');
     const statusDiv = document.getElementById('status');
-    const resultDiv = document.getElementById('result');
+    const videoResultsDiv = document.getElementById('video-results');
     const statsDiv = document.getElementById('stats-output');
     const feedbackDiv = document.getElementById('ai-feedback');
+    
+    // NEW: Get Checkbox State
+    const makeOverlay = document.getElementById('chkOverlay').checked;
 
     let videoKey = null;
 
-    if (isDemo) {
-        // DEMO MODE: Use hardcoded existing file in R2
-        exerciseName = "Back Squat"; 
-        videoKey = "demo/multi_rep_squat.mp4"; 
-    } else {
-        // NORMAL MODE: Upload user file
+    if (!isDemo) {
         if (exerciseName === "NEW_SPORT_ENTRY") {
             const rawName = document.getElementById('customSportName').value.trim();
             if (!rawName) return alert("Enter a name.");
@@ -138,10 +101,10 @@ async function startProcessing(isDemo = false) {
         videoKey = json.key;
     }
 
-    // Common Processing Logic
-    resultDiv.innerHTML = "";
+    // Reset UI
+    videoResultsDiv.innerHTML = "";
     if (statsDiv) statsDiv.innerHTML = "";
-    if (feedbackDiv) feedbackDiv.innerHTML = "Waiting ACE..."; 
+    if (feedbackDiv) feedbackDiv.innerHTML = "Waiting for ACE..."; 
 
     statusDiv.innerText = "Queuing Analysis Job...";
     try {
@@ -151,7 +114,8 @@ async function startProcessing(isDemo = false) {
                 videoKey: videoKey, 
                 task: currentTask, 
                 exerciseName: exerciseName,
-                is_demo: isDemo // Pass flag to worker
+                makeOverlay: makeOverlay, // <--- PASS CHECKBOX STATE
+                is_demo: isDemo 
             })
         });
 
@@ -184,7 +148,6 @@ function renderStats(statsObj) {
 
 async function pollStatus(id) {
     const statusDiv = document.getElementById('status');
-    const resultDiv = document.getElementById('result');
     const feedbackDiv = document.getElementById('ai-feedback');
 
     while (true) {
@@ -197,12 +160,9 @@ async function pollStatus(id) {
             if (data.status === 'succeeded') {
                 const output = data.output;
                 
-                // 1. Render Video
-                if (output.video) {
-                    resultDiv.innerHTML = `<h3>Analysis Result:</h3><video src="${output.video}" controls autoplay loop playsinline></video><p><a href="${output.video}" target="_blank">Download Video</a></p>`;
-                }
+                // We DON'T render video here anymore. 
+                // We wait for pollFeedback to get the full URL set.
                 
-                // 2. Render Stats
                 if (output.stats) {
                     try {
                         const statsObj = JSON.parse(output.stats);
@@ -210,10 +170,10 @@ async function pollStatus(id) {
                             document.getElementById('stats-output').innerHTML = `<div style="background:#eef; padding:10px;"><strong>✅ Ingest Complete!</strong></div>`;
                         } else {
                             renderStats(statsObj);
-
-                            // 3. FETCH AI FEEDBACK
+                            
+                            // Trigger Feedback & Video Rendering
                             if (feedbackDiv) {
-                                feedbackDiv.innerHTML = "<em>🤖 ACE is typing...</em>";
+                                feedbackDiv.innerHTML = "<em>🤖 ACE is analyzing results...</em>";
                                 pollFeedback(id); 
                             }
                         }
@@ -229,6 +189,7 @@ async function pollStatus(id) {
 
 async function pollFeedback(id) {
     const feedbackDiv = document.getElementById('ai-feedback');
+    const videoResultsDiv = document.getElementById('video-results');
     let attempts = 0;
     
     while (attempts < 20) { 
@@ -238,13 +199,44 @@ async function pollFeedback(id) {
             if (res.ok) {
                 const data = await res.json();
                 
-                if (data.status === "skipped" || data.error) {
-                    feedbackDiv.innerHTML = `<div style="color:red; background:#fee; padding:10px; border-radius:4px;">
-                        ⚠️ AI Analysis Skipped: ${data.reason || "Unknown Error"}
-                    </div>`;
-                    return;
+                if (data.status === "pending") continue; // Keep waiting if file not ready
+
+                // --- 1. RENDER VIDEO GRID ---
+                if (data.urls) {
+                    let gridHtml = '<div class="video-grid">';
+                    
+                    // A. Uploaded Video
+                    if (data.urls.uploaded) {
+                        gridHtml += `
+                            <div class="video-card">
+                                <h4>Your Video</h4>
+                                <video src="${data.urls.uploaded}" controls playsinline loop></video>
+                            </div>`;
+                    }
+
+                    // B. Overlay Video (Optional)
+                    if (data.urls.overlay) {
+                        gridHtml += `
+                            <div class="video-card">
+                                <h4>AI Overlay</h4>
+                                <video src="${data.urls.overlay}" controls playsinline loop></video>
+                            </div>`;
+                    }
+
+                    // C. Ideal Video (Best Match)
+                    if (data.urls.ideal) {
+                        gridHtml += `
+                            <div class="video-card">
+                                <h4>Pro Reference</h4>
+                                <video src="${data.urls.ideal}" controls playsinline loop></video>
+                            </div>`;
+                    }
+                    
+                    gridHtml += '</div>';
+                    videoResultsDiv.innerHTML = gridHtml;
                 }
 
+                // --- 2. RENDER ADVICE ---
                 if (data.advice) {
                     const html = data.advice.replace(/\n/g, '<br>').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
                     feedbackDiv.innerHTML = `<div style="background:#f0f8ff; border:1px solid #007bff; padding:15px; border-radius:8px; margin-top:20px;">
@@ -252,8 +244,9 @@ async function pollFeedback(id) {
                         <div style="line-height:1.6;">${html}</div>
                         <small style="color:#777;">Generated via ACE</small>
                     </div>`;
-                    return;
                 }
+                
+                return; // Done
             }
         } catch (e) { console.log("Waiting for feedback..."); }
         attempts++;
