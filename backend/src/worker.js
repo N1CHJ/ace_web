@@ -132,9 +132,7 @@ export default {
         return new Response(JSON.stringify({ success: true, key: key, message: "Saved" }), { headers: corsHeaders });
     }
 
-    // ------------------------------------------------------------------
-    // ROUTE: GET /feedback (FIXED)
-    // ------------------------------------------------------------------
+    // --- ROUTE: GET /feedback ---
     if (request.method === "GET" && url.pathname.endsWith("/feedback")) {
         const id = url.searchParams.get("id");
         if (!id) return new Response("Missing ID", { status: 400, headers: corsHeaders });
@@ -145,13 +143,10 @@ export default {
             return new Response(JSON.stringify({ status: "pending" }), { headers: corsHeaders });
         }
         
-        // Pass the raw body stream to avoid "[object Object]" serialization bug
         return new Response(object.body, { headers: corsHeaders });
     }
 
-    // ------------------------------------------------------------------
-    // ROUTE: POST /predict
-    // ------------------------------------------------------------------
+    // --- ROUTE: POST /predict ---
     if (request.method === "POST" && url.pathname.endsWith("/predict")) {
       try {
         const body = await request.json();
@@ -203,7 +198,7 @@ export default {
     }
 
     // ------------------------------------------------------------------
-    // ROUTE: POST /webhook (UPDATED WITH SMART URL LOOKUP)
+    // ROUTE: POST /webhook (UPDATED FALLBACK LOGIC)
     // ------------------------------------------------------------------
     if (request.method === "POST" && url.pathname.endsWith("/webhook")) {
       try {
@@ -255,7 +250,7 @@ export default {
                   
                   // Save Metadata including the source video key
                   const metaPayload = statsObj.meta || {};
-                  metaPayload.video_key = input.video_key; // <--- CRITICAL: Save link to real video
+                  metaPayload.video_key = input.video_key;
 
                   await env.ACE_BUCKET.put(`ideals/${folderName}/data/${cleanName}_${timestamp}.pkl`, bytes);
                   await env.ACE_BUCKET.put(`ideals/${folderName}/data/${cleanName}_${timestamp}.json`, JSON.stringify(metaPayload));
@@ -269,7 +264,7 @@ export default {
               }
           }
 
-          // 3. CONSTRUCT RESULT PACKAGE (URLs + Stats + Advice)
+          // 3. CONSTRUCT RESULT PACKAGE
           if (input.task === 'analyze') {
               const origin = new URL(request.url).origin;
               
@@ -280,7 +275,7 @@ export default {
               // B. Overlay Video URL
               const overlayUrl = overlayKey ? `${origin}/api/file?key=${overlayKey}` : null;
 
-              // C. Ideal Video URL (The Smart Lookup)
+              // C. Ideal Video URL (The Super Smart Lookup)
               let idealUrl = null;
               if (statsObj && statsObj.reps) {
                   // Find the best rep
@@ -289,8 +284,7 @@ export default {
                       .sort((a, b) => b.Score - a.Score)[0];
                   
                   if (bestRep) {
-                      const pklName = bestRep.Matched_Ideal; // e.g., "Back_Squat_123.pkl"
-                      // Look for the metadata JSON file with the same name
+                      const pklName = bestRep.Matched_Ideal;
                       const jsonName = pklName.replace('.pkl', '.json');
                       const metaKey = `ideals/${folderName}/data/${jsonName}`;
                       
@@ -299,21 +293,28 @@ export default {
                           const metaObj = await env.ACE_BUCKET.get(metaKey);
                           if (metaObj) {
                               const metaJson = await metaObj.json();
-                              // Check if we saved the explicit key during ingestion
+                              // 1. Try explicit link (New Data)
                               if (metaJson.video_key) {
                                   idealUrl = `${origin}/api/file?key=${metaJson.video_key}`;
                                   console.log(`✅ Found Ideal URL via metadata: ${idealUrl}`);
                               } else {
-                                  // Fallback: Try guessing .mp4
-                                  const videoGuess = pklName.replace('.pkl', '.mp4');
-                                  idealUrl = `${origin}/api/file?key=ideals/${folderName}/videos/${videoGuess}`;
-                                  console.log(`⚠️ Metadata missing video_key. Used fallback: ${idealUrl}`);
+                                  throw new Error("Old data, no key");
                               }
                           } else {
-                              console.log("⚠️ Metadata file not found for ideal.");
+                              throw new Error("Meta file missing");
                           }
                       } catch (e) {
-                          console.error("❌ Failed to resolve ideal video URL:", e);
+                          // 2. FALLBACK: LIST FILES (Old Data Rescue)
+                          console.log("⚠️ Metadata lookup failed. Scanning directory for ANY match...");
+                          const list = await env.ACE_BUCKET.list({ prefix: `ideals/${folderName}/videos/` });
+                          if (list.objects.length > 0) {
+                              // Grab the first video we find. Better than nothing!
+                              const fallbackKey = list.objects[0].key;
+                              idealUrl = `${origin}/api/file?key=${fallbackKey}`;
+                              console.log(`✅ Fallback: Found video in folder: ${idealUrl}`);
+                          } else {
+                              console.log("❌ No videos found in ideals folder.");
+                          }
                       }
                   }
               }
