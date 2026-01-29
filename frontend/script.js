@@ -7,7 +7,30 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 async function runDemo() {
-    alert("Demo Mode: For the updated 3-video view, please run a fresh upload!");
+    const statusDiv = document.getElementById('status');
+    const feedbackDiv = document.getElementById('ai-feedback');
+    const chkOverlay = document.getElementById('chkOverlay');
+
+    // Automatically check the overlay box for the demo
+    if (chkOverlay) chkOverlay.checked = true;
+
+    statusDiv.innerText = "Checking for demo data...";
+    
+    try {
+        const res = await fetch(`${WORKER_URL}/demo`);
+        const result = await res.json();
+
+        if (result.found) {
+            statusDiv.innerText = "✅ Demo Loaded from Cache";
+            renderStats(JSON.parse(result.data.output.stats));
+            pollFeedback(result.data.id); 
+        } else if (result.triggering) {
+            statusDiv.innerText = "⚙️ Demo not found. Generating now (First run)...";
+            pollStatus(result.id); // Reuses your existing polling logic
+        }
+    } catch (e) {
+        statusDiv.innerText = "Error: " + e.message;
+    }
 }
 
 async function loadSports() {

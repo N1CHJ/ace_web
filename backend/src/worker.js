@@ -96,11 +96,34 @@ export default {
     }
 
     // --- ROUTE: GET /demo ---
-    if (request.method === "GET" && url.pathname.endsWith("/demo")) {
-        const object = await env.ACE_BUCKET.get(DEMO_KEY);
-        if (!object) return new Response(JSON.stringify({ found: false }), { headers: corsHeaders });
-        return new Response(JSON.stringify({ found: true, data: await object.json() }), { headers: corsHeaders });
+    // --- NEW ROUTE: GET /demo ---
+if (request.method === "GET" && url.pathname.endsWith("/demo")) {
+    const DEMO_VIDEO_KEY = "demo/multi_rep_squat.mp4";
+    const demoJson = await env.ACE_BUCKET.get(DEMO_KEY);
+    
+    // 1. If demo JSON exists, return it immediately
+    if (demoJson) {
+        return new Response(JSON.stringify({ found: true, data: await demoJson.json() }), { headers: corsHeaders });
     }
+
+    // 2. If NOT, we trigger a real prediction using the demo video
+    // This effectively "warms up" the demo and saves it for next time
+    const predictUrl = `${new URL(request.url).origin}/api/predict`;
+    const triggerRes = await fetch(predictUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            videoKey: DEMO_VIDEO_KEY,
+            task: "analyze",
+            exerciseName: "Back Squat", // Default for demo
+            makeOverlay: true, // Force overlay for demo as requested
+            is_demo: true 
+        })
+    });
+
+    const prediction = await triggerRes.json();
+    return new Response(JSON.stringify({ found: false, triggering: true, id: prediction.id }), { headers: corsHeaders });
+}
 
     // --- ROUTE: GET /config ---
     if (request.method === "GET" && url.pathname.endsWith("/config")) {
