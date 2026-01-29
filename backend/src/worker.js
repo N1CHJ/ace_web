@@ -97,29 +97,9 @@ export default {
 
     // --- ROUTE: GET /demo ---
     if (request.method === "GET" && url.pathname.endsWith("/demo")) {
-        const DEMO_VIDEO_KEY = "demo/multi_rep_squat.mp4";
         const object = await env.ACE_BUCKET.get(DEMO_KEY);
-        
-        if (object) {
-            return new Response(JSON.stringify({ found: true, data: await object.json() }), { headers: corsHeaders });
-        }
-
-        // If not found, trigger the internal predict logic to generate it
-        const predictUrl = `${url.origin}/api/predict`;
-        const triggerRes = await fetch(predictUrl, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                videoKey: DEMO_VIDEO_KEY,
-                task: "analyze",
-                exerciseName: "Back Squat",
-                makeOverlay: true, 
-                is_demo: true 
-            })
-        });
-
-        const prediction = await triggerRes.json();
-        return new Response(JSON.stringify({ found: false, triggering: true, id: prediction.id }), { headers: corsHeaders });
+        if (!object) return new Response(JSON.stringify({ found: false }), { headers: corsHeaders });
+        return new Response(JSON.stringify({ found: true, data: await object.json() }), { headers: corsHeaders });
     }
 
     // --- ROUTE: GET /config ---
@@ -203,6 +183,13 @@ export default {
         });
 
         const jsonResponse = await response.json();
+
+        if (!response.ok) {
+            console.error("❌ REPLICATE API ERROR:", JSON.stringify(jsonResponse, null, 2));
+        } else {
+            console.log("✅ REPLICATE STARTED. ID:", jsonResponse.id);
+        }
+
         return new Response(JSON.stringify(jsonResponse), { headers: corsHeaders });
       } catch (err) { 
           console.error("❌ WORKER EXCEPTION:", err.message);
@@ -219,6 +206,7 @@ export default {
           console.log(`🔹 Webhook Received for ID: ${prediction.id}`);
 
           if (prediction.status !== "succeeded") {
+              console.log("🔸 Prediction not succeeded, ignoring.");
               return new Response("OK", { status: 200 });
           }
 
@@ -234,15 +222,21 @@ export default {
               }
           } catch(e) {}
 
+          // 1. SAVE OVERLAY (If exists)
           let overlayKey = null;
           if (output.video) {
+              console.log("⬇️ Downloading Overlay Video...");
               const videoRes = await fetch(output.video);
               if (videoRes.ok) {
                   overlayKey = `overlays/${folderName}/result_${timestamp}.mp4`;
                   await env.ACE_BUCKET.put(overlayKey, await videoRes.arrayBuffer());
+                  console.log("✅ Overlay Saved:", overlayKey);
+              } else {
+                  console.error("❌ Failed to fetch overlay video:", videoRes.status);
               }
           }
 
+          // 2. PARSE STATS & ADVICE
           let statsObj = null;
           let coachingAdvice = null;
           
@@ -250,61 +244,100 @@ export default {
               statsObj = JSON.parse(output.stats);
               
               if (statsObj.pkl_b64) {
+                  // INGEST MODE
                   const cleanName = input.exercise_name.trim().replace(/\s+/g, '_');
                   const bytes = Uint8Array.from(atob(statsObj.pkl_b64), c => c.charCodeAt(0));
+                  
+                  // Save Metadata including the source video key
                   const metaPayload = statsObj.meta || {};
                   metaPayload.video_key = input.video_key;
 
                   await env.ACE_BUCKET.put(`ideals/${folderName}/data/${cleanName}_${timestamp}.pkl`, bytes);
                   await env.ACE_BUCKET.put(`ideals/${folderName}/data/${cleanName}_${timestamp}.json`, JSON.stringify(metaPayload));
+                  console.log("✅ Ingest Data Saved");
               }
 
               if (input.task === 'analyze') {
+                  console.log("🧠 Requesting AI Advice...");
                   coachingAdvice = await getCoachingTips(input.exercise_name, { reps: statsObj.reps }, env);
+                  console.log("✅ Advice Received");
               }
           }
 
+          // 3. CONSTRUCT RESULT PACKAGE
           if (input.task === 'analyze') {
               const origin = new URL(request.url).origin;
+              
               const uploadedKey = output.uploaded_video_key || input.video_key;
               const uploadedUrl = `${origin}/api/file?key=${uploadedKey}`;
               const overlayUrl = overlayKey ? `${origin}/api/file?key=${overlayKey}` : null;
 
-              // --- START SMART LOOKUP LOGIC ---
+              // C. Ideal Video URL (The Super Smart Lookup)
               let idealUrl = null;
               if (statsObj && statsObj.reps) {
+                  // Find the best rep
                   const bestRep = statsObj.reps
                       .filter(r => r.Matched_Ideal)
                       .sort((a, b) => b.Score - a.Score)[0];
                   
                   if (bestRep) {
-                      const pklName = bestRep.Matched_Ideal;
+                      const pklName = bestRep.Matched_Ideal; // e.g., "Back_Squat_123.pkl"
                       const baseName = pklName.replace('.pkl', '');
-                      const metaKey = `ideals/${folderName}/data/${baseName}.json`;
+                      const jsonName = `${baseName}.json`;
+                      const metaKey = `ideals/${folderName}/data/${jsonName}`;
                       
                       try {
+                          console.log(`🔍 Looking up metadata: ${metaKey}`);
                           const metaObj = await env.ACE_BUCKET.get(metaKey);
                           let foundKey = null;
 
                           if (metaObj) {
                               const metaJson = await metaObj.json();
-                              if (metaJson.video_key) foundKey = metaJson.video_key;
+                              // 1. Try explicit link (New Data)
+                              if (metaJson.video_key) {
+                                  foundKey = metaJson.video_key;
+                                  console.log(`✅ Metadata Match: ${foundKey}`);
+                              }
                           } 
                           
                           if (!foundKey) {
+                              // 2. Smart Guessing (Legacy Data)
+                              // Check for .mp4 AND .mov variants explicitly
                               const mp4Key = `ideals/${folderName}/videos/${baseName}.mp4`;
                               const movKey = `ideals/${folderName}/videos/${baseName}.mov`;
-                              if (await env.ACE_BUCKET.head(mp4Key)) foundKey = mp4Key;
-                              else if (await env.ACE_BUCKET.head(movKey)) foundKey = movKey;
+                              
+                              const checkMp4 = await env.ACE_BUCKET.head(mp4Key);
+                              if (checkMp4) {
+                                  foundKey = mp4Key;
+                                  console.log(`✅ Smart Fallback: Found .mp4: ${foundKey}`);
+                              } else {
+                                  const checkMov = await env.ACE_BUCKET.head(movKey);
+                                  if (checkMov) {
+                                      foundKey = movKey;
+                                      console.log(`✅ Smart Fallback: Found .mov: ${foundKey}`);
+                                  }
+                              }
                           }
 
                           if (!foundKey) {
+                              // 3. Absolute Last Resort: Grab ANY video (Only if specific match fails)
+                              console.log("⚠️ Exact match failed. Listing directory for fallback...");
                               const list = await env.ACE_BUCKET.list({ prefix: `ideals/${folderName}/videos/`, limit: 1 });
-                              if (list.objects.length > 0) foundKey = list.objects[0].key;
+                              if (list.objects.length > 0) {
+                                  foundKey = list.objects[0].key;
+                                  console.log(`⚠️ Random Fallback: ${foundKey}`);
+                              }
                           }
 
-                          if (foundKey) idealUrl = `${origin}/api/file?key=${foundKey}`;
-                      } catch (e) { console.error("Lookup error", e); }
+                          if (foundKey) {
+                              idealUrl = `${origin}/api/file?key=${foundKey}`;
+                          } else {
+                              console.log("❌ No ideal video found after all attempts.");
+                          }
+
+                      } catch (e) {
+                          console.error("❌ Failed to resolve ideal video URL:", e);
+                      }
                   }
               }
 
@@ -317,35 +350,36 @@ export default {
               };
               
               await env.ACE_BUCKET.put(`feedback/${prediction.id}.json`, JSON.stringify(resultPayload));
-              
-              // IF DEMO: Pin to system/demo.json
-              if (input.is_demo) {
-                  await env.ACE_BUCKET.put(DEMO_KEY, JSON.stringify(resultPayload));
-              }
+              console.log("✅ Feedback Saved Successfully!");
           }
 
           return new Response("Webhook Processed", { status: 200 });
+
       } catch (err) {
+          console.error("❌ WEBHOOK CRITICAL ERROR:", err);
+          console.error(err.stack);
           return new Response("Webhook Error", { status: 500 });
       }
     }
 
+    // ... [Other routes /file and /status remain unchanged] ...
     if (request.method === "GET" && url.pathname.endsWith("/file")) {
         const key = url.searchParams.get("key");
         const object = await env.ACE_BUCKET.get(key);
         if (!object) return new Response("File Not Found", { status: 404, headers: corsHeaders });
         const headers = new Headers(corsHeaders);
         object.writeHttpMetadata(headers);
+        headers.set("etag", object.httpEtag);
         headers.set("Content-Type", "video/mp4"); 
         return new Response(object.body, { headers });
-    }
+      }
   
-    if (request.method === "GET" && url.pathname.endsWith("/status")) {
+      if (request.method === "GET" && url.pathname.endsWith("/status")) {
         const id = url.searchParams.get("id");
         const r = await fetch(`https://api.replicate.com/v1/predictions/${id}`, { headers: { "Authorization": `Token ${env.REPLICATE_API_TOKEN}` } });
         return new Response(JSON.stringify(await r.json()), { headers: corsHeaders });
-    }
+      }
       
-    return new Response("Not Found", { status: 404, headers: corsHeaders });
+      return new Response("Not Found", { status: 404, headers: corsHeaders });
   },
 };
