@@ -10,6 +10,13 @@ async function runDemo() {
     const statusDiv = document.getElementById('status');
     const feedbackDiv = document.getElementById('ai-feedback');
     const chkOverlay = document.getElementById('chkOverlay');
+    const videoResultsDiv = document.getElementById('video-results');
+    const statsDiv = document.getElementById('stats-output');
+
+    // Reset UI
+    if (videoResultsDiv) videoResultsDiv.innerHTML = "";
+    if (statsDiv) statsDiv.innerHTML = "";
+    if (feedbackDiv) feedbackDiv.innerHTML = "Initializing Demo...";
 
     // Automatically check the overlay box for the demo
     if (chkOverlay) chkOverlay.checked = true;
@@ -21,12 +28,39 @@ async function runDemo() {
         const result = await res.json();
 
         if (result.found) {
+            console.log("✅ Demo found in cache.");
             statusDiv.innerText = "✅ Demo Loaded from Cache";
-            renderStats(JSON.parse(result.data.output.stats));
-            pollFeedback(result.data.id); 
+            
+            // --- INSTANT RENDER (No Polling) ---
+            const payload = result.data; 
+
+            // 1. Stats
+            if (payload.stats) renderStats(payload.stats);
+            
+            // 2. Video Grid
+            if (payload.urls) {
+                let gridHtml = '<div class="video-grid">';
+                if (payload.urls.uploaded) gridHtml += `<div class="video-card"><h4>Your Video</h4><video src="${payload.urls.uploaded}" controls playsinline loop></video></div>`;
+                if (payload.urls.overlay) gridHtml += `<div class="video-card"><h4>AI Overlay</h4><video src="${payload.urls.overlay}" controls playsinline loop></video></div>`;
+                if (payload.urls.ideal) gridHtml += `<div class="video-card"><h4>Pro Reference</h4><video src="${payload.urls.ideal}" controls playsinline loop></video></div>`;
+                gridHtml += '</div>';
+                if (videoResultsDiv) videoResultsDiv.innerHTML = gridHtml;
+            }
+
+            // 3. Advice
+            if (payload.advice && feedbackDiv) {
+                const html = payload.advice.replace(/\n/g, '<br>').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+                feedbackDiv.innerHTML = `<div style="background:#f0f8ff; border:1px solid #007bff; padding:15px; border-radius:8px; margin-top:20px;">
+                    <h3 style="margin-top:0;">🤖 Coach's Feedback</h3>
+                    <div style="line-height:1.6;">${html}</div>
+                    <small style="color:#777;">Generated via ACE (Cached)</small>
+                </div>`;
+            }
+
         } else if (result.triggering) {
-            statusDiv.innerText = "⚙️ Demo not found. Generating now (First run)...";
-            pollStatus(result.id); // Reuses your existing polling logic
+            statusDiv.innerText = "⚙️ Demo data missing. Generating fresh analysis (approx 30s)...";
+            // Start polling the new ID
+            pollStatus(result.id); 
         }
     } catch (e) {
         statusDiv.innerText = "Error: " + e.message;

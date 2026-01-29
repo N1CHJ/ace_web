@@ -4,6 +4,7 @@ const WEBHOOK_URL = "https://ace-worker.ace-gateway.workers.dev/api/webhook";
 const CONFIG_KEY = "system/config.json";
 const TIERS_KEY = "system/tiers.json"; 
 const DEMO_KEY = "system/demo.json";
+const DEMO_VIDEO_KEY = "demo/multi_rep_squat.mp4"; // 1. DEFINED FALLBACK VIDEO
 
 export default {
   async fetch(request, env) {
@@ -95,11 +96,57 @@ export default {
         }
     }
 
-    // --- ROUTE: GET /demo ---
+    // ------------------------------------------------------------------
+    // ROUTE: GET /demo (UPDATED LOGIC)
+    // ------------------------------------------------------------------
     if (request.method === "GET" && url.pathname.endsWith("/demo")) {
+        // 1. Check Cache
         const object = await env.ACE_BUCKET.get(DEMO_KEY);
-        if (!object) return new Response(JSON.stringify({ found: false }), { headers: corsHeaders });
-        return new Response(JSON.stringify({ found: true, data: await object.json() }), { headers: corsHeaders });
+        if (object) {
+            return new Response(JSON.stringify({ found: true, data: await object.json() }), { headers: corsHeaders });
+        }
+
+        // 2. Cache Missing -> Trigger Generation
+        console.log("⚠️ Demo cache missing. Triggering generation...");
+        try {
+            const fullConfig = await getSystemConfig(); 
+            const modelOwner = "n1chj"; 
+            const modelName = "ace-athlete-engine";
+            
+            // Get Version
+            const vRes = await fetch(`https://api.replicate.com/v1/models/${modelOwner}/${modelName}/versions`, { 
+                headers: { "Authorization": `Token ${env.REPLICATE_API_TOKEN}` } 
+            });
+            const latestVersionId = (await vRes.json()).results[0].id;
+
+            // Trigger Prediction with is_demo: true
+            const response = await fetch("https://api.replicate.com/v1/predictions", {
+              method: "POST",
+              headers: { "Authorization": `Token ${env.REPLICATE_API_TOKEN}`, "Content-Type": "application/json" },
+              body: JSON.stringify({
+                version: latestVersionId, webhook: WEBHOOK_URL, webhook_events_filter: ["completed"],
+                input: {
+                    video_key: DEMO_VIDEO_KEY, // Use the fallback video
+                    task: "analyze", 
+                    exercise_name: "Back Squat", 
+                    system_config: JSON.stringify(fullConfig), 
+                    make_overlay: true,
+                    is_demo: true, // CRITICAL FLAG
+                    r2_endpoint: env.R2_ENDPOINT, 
+                    r2_bucket_name: "ace-athlete-data", 
+                    r2_access_key: env.R2_ACCESS_KEY_ID, 
+                    r2_secret_key: env.R2_SECRET_ACCESS_KEY
+                },
+              }),
+            });
+
+            const jsonResponse = await response.json();
+            // Return status to frontend so it knows to poll
+            return new Response(JSON.stringify({ found: false, triggering: true, id: jsonResponse.id }), { headers: corsHeaders });
+
+        } catch (err) {
+            return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: corsHeaders });
+        }
     }
 
     // --- ROUTE: GET /config ---
@@ -198,7 +245,7 @@ export default {
     }
 
     // ------------------------------------------------------------------
-    // ROUTE: POST /webhook (UPDATED FALLBACK LOGIC)
+    // ROUTE: POST /webhook (UPDATED TO SAVE DEMO)
     // ------------------------------------------------------------------
     if (request.method === "POST" && url.pathname.endsWith("/webhook")) {
       try {
@@ -275,69 +322,45 @@ export default {
               // C. Ideal Video URL (The Super Smart Lookup)
               let idealUrl = null;
               if (statsObj && statsObj.reps) {
-                  // Find the best rep
                   const bestRep = statsObj.reps
                       .filter(r => r.Matched_Ideal)
                       .sort((a, b) => b.Score - a.Score)[0];
                   
                   if (bestRep) {
-                      const pklName = bestRep.Matched_Ideal; // e.g., "Back_Squat_123.pkl"
+                      const pklName = bestRep.Matched_Ideal; 
                       const baseName = pklName.replace('.pkl', '');
                       const jsonName = `${baseName}.json`;
                       const metaKey = `ideals/${folderName}/data/${jsonName}`;
                       
                       try {
-                          console.log(`🔍 Looking up metadata: ${metaKey}`);
                           const metaObj = await env.ACE_BUCKET.get(metaKey);
                           let foundKey = null;
 
                           if (metaObj) {
                               const metaJson = await metaObj.json();
-                              // 1. Try explicit link (New Data)
-                              if (metaJson.video_key) {
-                                  foundKey = metaJson.video_key;
-                                  console.log(`✅ Metadata Match: ${foundKey}`);
-                              }
+                              if (metaJson.video_key) foundKey = metaJson.video_key;
                           } 
                           
                           if (!foundKey) {
-                              // 2. Smart Guessing (Legacy Data)
-                              // Check for .mp4 AND .mov variants explicitly
                               const mp4Key = `ideals/${folderName}/videos/${baseName}.mp4`;
-                              const movKey = `ideals/${folderName}/videos/${baseName}.mov`;
-                              
                               const checkMp4 = await env.ACE_BUCKET.head(mp4Key);
                               if (checkMp4) {
                                   foundKey = mp4Key;
-                                  console.log(`✅ Smart Fallback: Found .mp4: ${foundKey}`);
                               } else {
+                                  const movKey = `ideals/${folderName}/videos/${baseName}.mov`;
                                   const checkMov = await env.ACE_BUCKET.head(movKey);
-                                  if (checkMov) {
-                                      foundKey = movKey;
-                                      console.log(`✅ Smart Fallback: Found .mov: ${foundKey}`);
-                                  }
+                                  if (checkMov) foundKey = movKey;
                               }
                           }
 
                           if (!foundKey) {
-                              // 3. Absolute Last Resort: Grab ANY video (Only if specific match fails)
-                              console.log("⚠️ Exact match failed. Listing directory for fallback...");
                               const list = await env.ACE_BUCKET.list({ prefix: `ideals/${folderName}/videos/`, limit: 1 });
-                              if (list.objects.length > 0) {
-                                  foundKey = list.objects[0].key;
-                                  console.log(`⚠️ Random Fallback: ${foundKey}`);
-                              }
+                              if (list.objects.length > 0) foundKey = list.objects[0].key;
                           }
 
-                          if (foundKey) {
-                              idealUrl = `${origin}/api/file?key=${foundKey}`;
-                          } else {
-                              console.log("❌ No ideal video found after all attempts.");
-                          }
+                          if (foundKey) idealUrl = `${origin}/api/file?key=${foundKey}`;
 
-                      } catch (e) {
-                          console.error("❌ Failed to resolve ideal video URL:", e);
-                      }
+                      } catch (e) { console.error(e); }
                   }
               }
 
@@ -349,7 +372,15 @@ export default {
                   generated_at: new Date().toISOString()
               };
               
+              // A. Save to standard feedback ID
               await env.ACE_BUCKET.put(`feedback/${prediction.id}.json`, JSON.stringify(resultPayload));
+              
+              // B. SAVE TO DEMO KEY IF IT WAS A DEMO RUN
+              if (input.is_demo) {
+                  console.log("🌟 SAVING DEMO TO PERMANENT CACHE");
+                  await env.ACE_BUCKET.put(DEMO_KEY, JSON.stringify(resultPayload));
+              }
+
               console.log("✅ Feedback Saved Successfully!");
           }
 
@@ -357,7 +388,6 @@ export default {
 
       } catch (err) {
           console.error("❌ WEBHOOK CRITICAL ERROR:", err);
-          console.error(err.stack);
           return new Response("Webhook Error", { status: 500 });
       }
     }
