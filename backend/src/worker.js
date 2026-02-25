@@ -155,6 +155,18 @@ export default {
         return new Response(JSON.stringify(config), { headers: corsHeaders });
     }
 
+    // --- ROUTE: GET /dashboard ---
+    if (request.method === "GET" && url.pathname.endsWith("/dashboard")) {
+        try {
+            const { results } = await env.DB.prepare(
+                "SELECT * FROM Sessions ORDER BY created_at DESC LIMIT 10"
+            ).all();
+            return new Response(JSON.stringify(results), { headers: corsHeaders });
+        } catch (err) {
+            return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: corsHeaders });
+        }
+    }
+
     // --- ROUTE: PUT /upload ---
     if (request.method === "PUT" && url.pathname.endsWith("/upload")) {
         const task = url.searchParams.get("task");
@@ -375,6 +387,48 @@ export default {
               // A. Save to standard feedback ID
               await env.ACE_BUCKET.put(`feedback/${prediction.id}.json`, JSON.stringify(resultPayload));
               
+              // --- D1 PERSISTENCE ---
+              try {
+                  const validReps = (statsObj.reps || []).filter(r => typeof r.Score === 'number');
+                  const avgScore = validReps.length > 0 
+                      ? Math.round(validReps.reduce((a, b) => a + b.Score, 0) / validReps.length) 
+                      : 0;
+
+                  // 1. Insert Session
+                  await env.DB.prepare(`
+                      INSERT INTO Sessions (id, user_id, exercise, score, advice, video_url, overlay_url, ideal_url)
+                      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                  `).bind(
+                      prediction.id,
+                      1, // Default Admin Athlete
+                      input.exercise_name,
+                      avgScore,
+                      coachingAdvice,
+                      uploadedUrl,
+                      overlayUrl,
+                      idealUrl
+                  ).run();
+
+                  // 2. Insert Reps
+                  if (statsObj.reps && statsObj.reps.length > 0) {
+                      const statements = statsObj.reps.map(rep => {
+                          return env.DB.prepare(`
+                              INSERT INTO Reps (session_id, rep_number, score, issues)
+                              VALUES (?, ?, ?, ?)
+                          `).bind(
+                              prediction.id,
+                              rep.Rep,
+                              rep.Score || 0,
+                              JSON.stringify(rep.Issues || [])
+                          );
+                      });
+                      await env.DB.batch(statements);
+                  }
+                  console.log("✅ D1 Persistence Complete");
+              } catch (d1Err) {
+                  console.error("❌ D1 INSERT ERROR:", d1Err);
+              }
+
               // B. SAVE TO DEMO KEY IF IT WAS A DEMO RUN
               if (input.is_demo) {
                   console.log("🌟 SAVING DEMO TO PERMANENT CACHE");

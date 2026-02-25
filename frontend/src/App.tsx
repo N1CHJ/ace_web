@@ -35,6 +35,17 @@ interface FeedbackResponse {
   advice?: string;
 }
 
+interface Session {
+  id: string;
+  exercise: string;
+  score: number;
+  advice: string;
+  video_url: string;
+  overlay_url: string;
+  ideal_url: string;
+  created_at: string;
+}
+
 interface DemoResponse {
   found: boolean;
   data: {
@@ -58,12 +69,26 @@ function App() {
   const [advice, setAdvice] = useState<string>('');
   const [stats, setStats] = useState<StatsObj | null>(null);
   const [isLoadingSports, setIsLoadingSports] = useState<boolean>(true);
+  const [dashboardHistory, setDashboardHistory] = useState<Session[]>([]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     loadSports();
+    fetchDashboard();
   }, []);
+
+  const fetchDashboard = async () => {
+    try {
+      const res = await fetch(`${WORKER_URL}/dashboard`);
+      if (res.ok) {
+        const data = await res.json();
+        setDashboardHistory(data);
+      }
+    } catch (e) {
+      console.error("Dashboard fetch error:", e);
+    }
+  };
 
   const loadSports = async () => {
     setIsLoadingSports(true);
@@ -372,6 +397,47 @@ function App() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {dashboardHistory.length > 0 && (
+        <div className="dashboard-section">
+          <hr />
+          <h2>📊 Performance Dashboard</h2>
+          
+          <div className="chart-container">
+            <h4>Performance Over Time</h4>
+            <div className="bar-chart">
+              {[...dashboardHistory].reverse().map((session, idx) => (
+                <div key={idx} className="bar-wrapper">
+                  <div 
+                    className="bar" 
+                    style={{ height: `${session.score}%` }}
+                    title={`${session.exercise}: ${session.score}`}
+                  >
+                    <span className="bar-label">{session.score}</span>
+                  </div>
+                  <div className="bar-date">{new Date(session.created_at).toLocaleDateString()}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <h3>Recent Sessions</h3>
+          <div className="video-grid">
+            {dashboardHistory.map((session) => (
+              <div key={session.id} className="video-card session-card">
+                <div className="session-info">
+                  <strong>{session.exercise}</strong>
+                  <span className={`badge ${session.score >= 80 ? 'good' : 'bad'}`}>
+                    {session.score}%
+                  </span>
+                </div>
+                <video src={session.overlay_url || session.video_url} controls playsInline loop />
+                <small>{new Date(session.created_at).toLocaleString()}</small>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>

@@ -13,3 +13,8 @@ preview_bucket_name = "ace-athlete-data" # (Optional: Needed if you run 'wrangle
 
 [observability]
 enabled = false
+
+[[d1_databases]]
+binding = "DB"
+database_name = "ace"
+database_id = "446762e4-3bb7-4522-8225-a573c7d8e34e"
