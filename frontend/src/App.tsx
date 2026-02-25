@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, type ChangeEvent } from 'react';
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import './App.css';
 
 const WORKER_URL = "https://ace-worker.ace-gateway.workers.dev/api";
@@ -58,6 +59,12 @@ interface DemoResponse {
 }
 
 function App() {
+  // New Auth State
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+
+  // Existing State
   const [task, setTask] = useState<'analyze' | 'ingest_reference'>('analyze');
   const [sports, setSports] = useState<string[]>([]);
   const [selectedSport, setSelectedSport] = useState<string>('');
@@ -70,6 +77,7 @@ function App() {
   const [stats, setStats] = useState<StatsObj | null>(null);
   const [isLoadingSports, setIsLoadingSports] = useState<boolean>(true);
   const [dashboardHistory, setDashboardHistory] = useState<Session[]>([]);
+  const [showUploadControls, setShowUploadControls] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -121,6 +129,10 @@ function App() {
   };
 
   const runDemo = async () => {
+    // Auth bypass for demo
+    setIsAuthenticated(true);
+    setUsername("Demo Athlete");
+    
     resetUI();
     setAdvice("Initializing Demo...");
     setMakeOverlay(true);
@@ -266,180 +278,263 @@ function App() {
     return text.replace(/\n/g, '<br>').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
   };
 
-  return (
-    <div className="App">
-      <h1>🏋️ ACE Coach</h1>
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (username.trim()) {
+      setIsAuthenticated(true);
+    }
+  };
 
-      <button onClick={runDemo} className="btn-demo">▶ Run Demo</button>
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    setUsername('');
+    setPassword('');
+    resetUI();
+  };
 
-      <div className="tabs">
-        <div
-          className={`tab ${task === 'analyze' ? 'active' : ''}`}
-          onClick={() => setTask('analyze')}
-        >
-          Analyze Form
-        </div>
-        <div
-          className={`tab ${task === 'ingest_reference' ? 'active' : ''}`}
-          onClick={() => setTask('ingest_reference')}
-        >
-          Admin Ingest
-        </div>
-      </div>
+  // Process data for Recharts
+  const chartData = [...dashboardHistory]
+    .reverse()
+    .map(session => ({
+      date: new Date(session.created_at).toLocaleDateString(),
+      score: session.score,
+      exercise: session.exercise
+    }));
 
-      <div className="container">
-        <select
-          value={selectedSport}
-          onChange={(e) => setSelectedSport(e.target.value)}
-          disabled={isLoadingSports}
-        >
-          {isLoadingSports ? (
-            <option>Loading sports...</option>
-          ) : (
-            <>
-              {sports.map((sport) => (
-                <option key={sport} value={sport}>{sport}</option>
-              ))}
-              <option disabled>──────────</option>
-              <option value="NEW_SPORT_ENTRY">➕ Create New Sport...</option>
-            </>
-          )}
-        </select>
-
-        {selectedSport === "NEW_SPORT_ENTRY" && (
-          <div id="customInputContainer">
+  if (!isAuthenticated) {
+    return (
+      <div className="landing-page">
+        <div className="auth-card">
+          <h1>Welcome to ACE Athlete</h1>
+          <form onSubmit={handleLogin} className="auth-form">
             <input
               type="text"
-              placeholder="Type new sport name (e.g. Cricket Bowl)"
-              value={customSportName}
-              onChange={(e) => setCustomSportName(e.target.value)}
-              autoFocus
+              placeholder="Username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              required
             />
+            <input
+              type="password"
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+            <div className="auth-buttons">
+              <button type="submit">Log In</button>
+              <button type="button" onClick={() => setIsAuthenticated(true)}>Sign Up</button>
+            </div>
+          </form>
+          <div className="divider">
+            <span>OR</span>
           </div>
+          <button className="btn-demo-bypass" onClick={runDemo}>
+            Try the Demo
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="dashboard-layout">
+      <header className="dashboard-header">
+        <div className="logo">🏋️ ACE Athlete</div>
+        <div className="user-nav">
+          <span>Welcome, <strong>{username}</strong></span>
+          <button onClick={handleLogout} className="btn-logout">Log Out</button>
+        </div>
+      </header>
+
+      <main className="dashboard-content">
+        <div className="dashboard-controls">
+          <button 
+            className="btn-upload-toggle" 
+            onClick={() => setShowUploadControls(!showUploadControls)}
+          >
+            {showUploadControls ? "Close Upload" : "Upload New Video"}
+          </button>
+
+          {showUploadControls && (
+            <div className="upload-section card">
+              <div className="tabs">
+                <div
+                  className={`tab ${task === 'analyze' ? 'active' : ''}`}
+                  onClick={() => setTask('analyze')}
+                >
+                  Analyze Form
+                </div>
+                <div
+                  className={`tab ${task === 'ingest_reference' ? 'active' : ''}`}
+                  onClick={() => setTask('ingest_reference')}
+                >
+                  Admin Ingest
+                </div>
+              </div>
+
+              <div className="upload-controls-grid">
+                <select
+                  value={selectedSport}
+                  onChange={(e) => setSelectedSport(e.target.value)}
+                  disabled={isLoadingSports}
+                >
+                  {isLoadingSports ? (
+                    <option>Loading sports...</option>
+                  ) : (
+                    <>
+                      {sports.map((sport) => (
+                        <option key={sport} value={sport}>{sport}</option>
+                      ))}
+                      <option disabled>──────────</option>
+                      <option value="NEW_SPORT_ENTRY">➕ Create New Sport...</option>
+                    </>
+                  )}
+                </select>
+
+                {selectedSport === "NEW_SPORT_ENTRY" && (
+                  <input
+                    type="text"
+                    placeholder="New sport name"
+                    value={customSportName}
+                    onChange={(e) => setCustomSportName(e.target.value)}
+                    autoFocus
+                  />
+                )}
+
+                <div className="file-input-wrapper">
+                  <input
+                    type="file"
+                    accept="video/*"
+                    onChange={handleFileChange}
+                    ref={fileInputRef}
+                  />
+                </div>
+
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={makeOverlay}
+                    onChange={(e) => setMakeOverlay(e.target.checked)}
+                  />
+                  Generate Overlay?
+                </label>
+
+                <button className="btn-process" onClick={startProcessing}>Run Processing</button>
+              </div>
+              {status && <div className="status">{status}</div>}
+            </div>
+          )}
+        </div>
+
+        {/* Current Results Section */}
+        {(videoUrls || advice || stats) && (
+          <section className="results-section">
+            <h2>Current Analysis</h2>
+            {videoUrls && (
+              <div className="video-grid">
+                {videoUrls.uploaded && (
+                  <div className="video-card">
+                    <h4>Your Video</h4>
+                    <video src={videoUrls.uploaded} controls playsInline loop />
+                  </div>
+                )}
+                {videoUrls.overlay && (
+                  <div className="video-card">
+                    <h4>AI Overlay</h4>
+                    <video src={videoUrls.overlay} controls playsInline loop />
+                  </div>
+                )}
+                {videoUrls.ideal && (
+                  <div className="video-card">
+                    <h4>Pro Reference</h4>
+                    <video src={videoUrls.ideal} controls playsInline loop />
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="analysis-details">
+              {advice && (
+                <div className="feedback-container card">
+                  <h3>🤖 Coach's Feedback</h3>
+                  <div dangerouslySetInnerHTML={{ __html: formatAdvice(advice) }} />
+                </div>
+              )}
+
+              {stats && (
+                <div className="stats-container card">
+                  <h3>Rep-by-Rep Scores</h3>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Rep</th>
+                        <th>Score</th>
+                        <th>Match</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {stats.reps.map((rep, idx) => (
+                        <tr key={idx}>
+                          <td>{rep.Rep}</td>
+                          <td className={rep.Score >= 80 ? 'score-good' : 'score-bad'}>
+                            {rep.Score}
+                          </td>
+                          <td>{rep.Matched_Ideal || '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </section>
         )}
 
-        <div className="options-row">
-          <input
-            type="file"
-            accept="video/*"
-            onChange={handleFileChange}
-            ref={fileInputRef}
-          />
+        {/* Performance Chart */}
+        <section className="chart-section card">
+          <h3>Performance History</h3>
+          <div className="chart-wrapper">
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="date" />
+                <YAxis domain={[0, 100]} />
+                <Tooltip />
+                <Line 
+                  type="monotone" 
+                  dataKey="score" 
+                  stroke="#007bff" 
+                  strokeWidth={3} 
+                  dot={{ r: 6 }} 
+                  activeDot={{ r: 8 }} 
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </section>
 
-          <label className="checkbox-label">
-            <input
-              type="checkbox"
-              checked={makeOverlay}
-              onChange={(e) => setMakeOverlay(e.target.checked)}
-            />
-            Generate Overlay?
-          </label>
-        </div>
-
-        <button onClick={startProcessing}>Run Processing</button>
-      </div>
-
-      <div className="status">{status}</div>
-
-      {videoUrls && (
-        <div className="video-grid">
-          {videoUrls.uploaded && (
-            <div className="video-card">
-              <h4>Your Video</h4>
-              <video src={videoUrls.uploaded} controls playsInline loop />
-            </div>
-          )}
-          {videoUrls.overlay && (
-            <div className="video-card">
-              <h4>AI Overlay</h4>
-              <video src={videoUrls.overlay} controls playsInline loop />
-            </div>
-          )}
-          {videoUrls.ideal && (
-            <div className="video-card">
-              <h4>Pro Reference</h4>
-              <video src={videoUrls.ideal} controls playsInline loop />
-            </div>
-          )}
-        </div>
-      )}
-
-      {advice && (
-        <div className="feedback-container">
-          <h3>🤖 Coach's Feedback</h3>
-          <div
-            dangerouslySetInnerHTML={{ __html: formatAdvice(advice) }}
-          />
-          <small>Generated via ACE</small>
-        </div>
-      )}
-
-      {stats && (
-        <div id="stats-output">
-          <h3>Rep-by-Rep Scores</h3>
-          <table>
-            <thead>
-              <tr>
-                <th>Rep</th>
-                <th>Score</th>
-                <th>Match</th>
-              </tr>
-            </thead>
-            <tbody>
-              {stats.reps.map((rep, idx) => (
-                <tr key={idx}>
-                  <td>{rep.Rep}</td>
-                  <td className={rep.Score >= 80 ? 'score-good' : 'score-bad'}>
-                    {rep.Score}
-                  </td>
-                  <td>{rep.Matched_Ideal || '-'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {dashboardHistory.length > 0 && (
-        <div className="dashboard-section">
-          <hr />
-          <h2>📊 Performance Dashboard</h2>
-          
-          <div className="chart-container">
-            <h4>Performance Over Time</h4>
-            <div className="bar-chart">
-              {[...dashboardHistory].reverse().map((session, idx) => (
-                <div key={idx} className="bar-wrapper">
-                  <div 
-                    className="bar" 
-                    style={{ height: `${session.score}%` }}
-                    title={`${session.exercise}: ${session.score}`}
-                  >
-                    <span className="bar-label">{session.score}</span>
+        {/* Recent Sessions */}
+        {dashboardHistory.length > 0 && (
+          <section className="history-section">
+            <h3>Recent Sessions</h3>
+            <div className="video-grid">
+              {dashboardHistory.map((session) => (
+                <div key={session.id} className="video-card session-card">
+                  <div className="session-info">
+                    <strong>{session.exercise}</strong>
+                    <span className={`badge ${session.score >= 80 ? 'good' : 'bad'}`}>
+                      {session.score}%
+                    </span>
                   </div>
-                  <div className="bar-date">{new Date(session.created_at).toLocaleDateString()}</div>
+                  <video src={session.overlay_url || session.video_url} controls playsInline loop />
+                  <div className="session-date">{new Date(session.created_at).toLocaleString()}</div>
                 </div>
               ))}
             </div>
-          </div>
-
-          <h3>Recent Sessions</h3>
-          <div className="video-grid">
-            {dashboardHistory.map((session) => (
-              <div key={session.id} className="video-card session-card">
-                <div className="session-info">
-                  <strong>{session.exercise}</strong>
-                  <span className={`badge ${session.score >= 80 ? 'good' : 'bad'}`}>
-                    {session.score}%
-                  </span>
-                </div>
-                <video src={session.overlay_url || session.video_url} controls playsInline loop />
-                <small>{new Date(session.created_at).toLocaleString()}</small>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+          </section>
+        )}
+      </main>
     </div>
   );
 }
