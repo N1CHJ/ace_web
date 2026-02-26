@@ -286,6 +286,109 @@ body {
 .level-3 { background: #26a641; }
 .level-4 { background: #39d353; }
 
+/* Heatmap Enhancements */
+.heatmap-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.heatmap-months {
+  display: flex;
+  gap: 20px;
+  color: var(--text-dim);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.heatmap-legend {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 15px;
+  color: var(--text-dim);
+  font-size: 0.7rem;
+}
+
+.heatmap-legend .heatmap-cell {
+  width: 12px;
+  height: 12px;
+  cursor: default;
+}
+
+.heatmap-legend .heatmap-cell:hover {
+  transform: none;
+}
+
+/* Workout Sessions Table View */
+.sessions-view {
+  max-width: 1200px;
+  margin: 0 auto;
+  animation: fadeIn 0.3s ease-out;
+}
+
+.sessions-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 30px;
+}
+
+.sessions-header h2 {
+  margin: 0;
+  font-size: 2rem;
+  color: var(--text);
+}
+
+.sessions-table-card {
+  padding: 0;
+  overflow: hidden;
+}
+
+.sessions-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.sessions-table th {
+  background: rgba(255, 255, 255, 0.02);
+  padding: 18px 24px;
+  font-weight: 700;
+  font-size: 0.85rem;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+
+.sessions-table td {
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  font-size: 0.95rem;
+  text-align: left;
+}
+
+.interactive-row {
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.interactive-row:hover {
+  background: rgba(0, 210, 255, 0.05);
+}
+
+.interactive-row:hover td {
+  color: var(--primary);
+}
+
+.score-cell {
+  font-weight: 800;
+  color: var(--primary) !important;
+}
+
 /* KPI Cards */
 .kpi-column {
   display: flex;
@@ -336,15 +439,14 @@ body {
 .history-row {
   grid-column: 1 / -1;
   margin-top: 20px;
+  width: 100%;
 }
 
 .recent-sessions-grid {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 20px;
-  overflow-x: auto;
-  padding-bottom: 15px;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
+  width: 100%;
 }
 
 /* Dashboard Controls */
@@ -471,8 +573,7 @@ body {
 
 /* Updated Recent Sessions & Hover Video */
 .session-thumbnail-card {
-  min-width: 200px;
-  max-width: 200px;
+  width: 100%;
   background: var(--card-bg-elevated);
   border-radius: 12px;
   overflow: hidden;
@@ -482,7 +583,7 @@ body {
 }
 
 .session-thumbnail-card:hover {
-  transform: translateY(-8px) scale(1.03);
+  transform: translateY(-8px);
   border-color: var(--primary);
   box-shadow: 0 15px 30px rgba(0, 210, 255, 0.2);
 }
