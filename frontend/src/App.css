@@ -231,13 +231,38 @@ body {
   background: var(--bg);
 }
 
-/* Dashboard Grid */
-.dashboard-grid {
+/* Dashboard Grid Layout */
+.dashboard-grid-layout {
   display: grid;
-  grid-template-columns: 1fr 340px;
+  grid-template-columns: 1fr 350px;
   gap: 30px;
+  align-items: start;
   max-width: 1400px;
   margin: 0 auto;
+}
+
+.dashboard-main-column {
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+  min-width: 0;
+}
+
+.dashboard-side-column {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  position: sticky;
+  top: 40px;
+}
+
+@media (max-width: 1024px) {
+  .dashboard-grid-layout {
+    grid-template-columns: 1fr;
+  }
+  .dashboard-side-column {
+    position: static;
+  }
 }
 
 .analytics-column {
@@ -525,7 +550,6 @@ body {
   padding: 10px 20px;
   border-radius: 8px;
   cursor: pointer;
-  margin-bottom: 30px;
   font-weight: 500;
   transition: all 0.2s;
 }
@@ -533,6 +557,28 @@ body {
 .btn-back:hover {
   border-color: var(--text);
   color: var(--text);
+}
+
+.btn-delete {
+  background: transparent;
+  color: #ff4d4d;
+  border: 1px solid #ff4d4d;
+  padding: 10px 20px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: all 0.2s;
+}
+
+.btn-delete:hover {
+  background: rgba(255, 77, 77, 0.1);
+  box-shadow: 0 0 10px rgba(255, 77, 77, 0.3);
+}
+
+.drilldown-actions {
+  display: flex;
+  gap: 15px;
+  margin-bottom: 30px;
 }
 
 .drilldown-header {

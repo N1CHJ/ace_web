@@ -130,6 +130,20 @@ function App() {
     }
   };
 
+  const handleDeleteSession = async (id: string) => {
+    if (!window.confirm("Are you sure you want to delete this session?")) return;
+
+    try {
+      // Placeholder for backend call
+      // await fetch(`${WORKER_URL}/delete-session?id=${id}`, { method: 'DELETE' });
+      
+      setDashboardHistory(prev => prev.filter(s => s.id !== id));
+      setSelectedSession(null);
+    } catch (e) {
+      console.error("Delete error:", e);
+    }
+  };
+
   const filteredHistory = sportFilter === 'All' 
     ? dashboardHistory 
     : dashboardHistory.filter(s => s.exercise === sportFilter);
@@ -472,14 +486,20 @@ function App() {
         </div>
       </nav>
 
-                  <main className="main-content">
-                    {selectedSession ? (
-                      <div className="detailed-session-view">
-                        <button className="btn-back" onClick={() => setSelectedSession(null)}>
-                          ← Back
-                        </button>
-                        
-                        <div className="drilldown-header">
+                        <main className="main-content">
+                          {selectedSession ? (
+                            <div className="detailed-session-view">
+                              <div className="drilldown-actions">
+                                <button className="btn-back" onClick={() => setSelectedSession(null)}>
+                                  ← Back
+                                </button>
+                                <button className="btn-delete" onClick={() => handleDeleteSession(selectedSession.id)}>
+                                  Delete Session
+                                </button>
+                              </div>
+                              
+                              <div className="drilldown-header">
+                  
                           <h2>{selectedSession.exercise} Analysis</h2>
                           <span className="drilldown-date">
                             {new Date(selectedSession.created_at).toLocaleString()}
@@ -528,141 +548,140 @@ function App() {
                       </div>
                     ) : (
                       <>
-                        {activeView === 'dashboard' && (
-                          <div className="dashboard-grid">
-                            <div className="dashboard-controls">
-                              <button 
-                                className="btn-seed" 
-                                onClick={seedMockData} 
-                                disabled={isSeeding}
-                              >
-                                {isSeeding ? "Seeding..." : "Seed Mock Data"}
-                              </button>
-                            </div>
-            
-                            <div className="analytics-column">
-                              <section className="heatmap-section card">
-                                <div className="heatmap-header">
-                                  <h3>Activity Heatmap</h3>
-                                  <div className="heatmap-months">
-                                    <span>Jan</span>
-                                    <span>Feb</span>
-                                    <span>Mar</span>
-                                  </div>
-                                </div>
-                                <div className="heatmap-grid">
-                                  {getHeatmapData().map((day, idx) => (
-                                    <div 
-                                      key={idx} 
-                                      className={`heatmap-cell level-${Math.min(day.count, 4)}`}
-                                      title={`${day.date}: ${day.count} sessions`}
-                                    />
-                                  ))}
-                                </div>
-                                <div className="heatmap-legend">
-                                  <span>Less</span>
-                                  <div className="heatmap-cell level-0" />
-                                  <div className="heatmap-cell level-1" />
-                                  <div className="heatmap-cell level-2" />
-                                  <div className="heatmap-cell level-3" />
-                                  <div className="heatmap-cell level-4" />
-                                  <span>More</span>
-                                </div>
-                              </section>
-            
-                              <div className="sport-filters">
-                                {availableSports.map(sport => (
-                                  <button
-                                    key={sport}
-                                    className={`filter-pill ${sportFilter === sport ? 'active' : ''}`}
-                                    onClick={() => setSportFilter(sport)}
-                                  >
-                                    {sport}
-                                  </button>
-                                ))}
-                              </div>
-            
-                              <section className="chart-section card">
-                                <h3>Average Score Trend</h3>
-                                <div className="chart-wrapper">
-                                  <ResponsiveContainer width="100%" height={250}>
-                                    <LineChart data={chartData}>
-                                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#3f3f4d" />
-                                      <XAxis dataKey="date" stroke="#a0a0b0" fontSize={12} />
-                                      <YAxis domain={[0, 100]} stroke="#a0a0b0" fontSize={12} />
-                                      <Tooltip 
-                                        contentStyle={{ backgroundColor: '#2b2b36', borderColor: '#3f3f4d', color: '#fff' }}
-                                        itemStyle={{ color: '#00d2ff' }}
-                                      />
-                                      <Line 
-                                        type="monotone" 
-                                        dataKey="score" 
-                                        stroke="#00d2ff" 
-                                        strokeWidth={3} 
-                                        dot={{ r: 4, fill: '#00d2ff' }} 
-                                        activeDot={{ r: 6, stroke: '#fff' }} 
-                                      />
-                                    </LineChart>
-                                  </ResponsiveContainer>
-                                </div>
-                              </section>
-                            </div>
-            
-                            <div className="kpi-column">
-                              <div className="kpi-card best-form-card card">
-                                <h4>All-Time Best Form</h4>
-                                {allTimeBest ? (
-                                  <>
-                                    <video 
-                                      src={allTimeBest.overlay_url || allTimeBest.video_url} 
-                                      muted autoPlay loop playsInline 
-                                    />
-                                    <div className="kpi-value">{allTimeBest.score}%</div>
-                                    <div className="kpi-label">{allTimeBest.exercise}</div>
-                                  </>
-                                ) : <p>No sessions yet</p>}
-                              </div>
-            
-                              <div className="kpi-card card">
-                                <h4>Overall Average Score</h4>
-                                <div className="kpi-value-large">{overallAvg}%</div>
-                                <div className="kpi-label">Across {filteredHistory.length} sessions</div>
-                              </div>
-            
-                              <div className="kpi-card card latest-note-card">
-                                <h4>Latest Coach Note</h4>
-                                <div 
-                                  className="advice-text"
-                                  dangerouslySetInnerHTML={{ __html: formatAdvice(latestNote) }} 
-                                />
-                              </div>
-                            </div>
-            
-                            <section className="history-row">
-                              <h3>Recent Sessions</h3>
-                              <div className="recent-sessions-grid">
-                                {filteredHistory.slice(0, 8).map((session) => (
-                                  <div 
-                                    key={session.id} 
-                                    className="session-thumbnail-card"
-                                    onClick={() => setSelectedSession(session)}
-                                  >
-                                    <HoverVideo 
-                                      src={session.overlay_url || session.video_url} 
-                                      className="session-hover-video"
-                                    />
-                                    <div className="session-thumb-info">
-                                      <span className="session-thumb-exercise">{session.exercise}</span>
-                                      <span className="session-thumb-score">{session.score}%</span>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            </section>
-                          </div>
-                        )}
-            
-                        {activeView === 'sessions' && (
+                                    {activeView === 'dashboard' && (
+                                      <div className="dashboard-grid-layout">
+                                        <div className="dashboard-controls">
+                                          <button 
+                                            className="btn-seed" 
+                                            onClick={seedMockData} 
+                                            disabled={isSeeding}
+                                          >
+                                            {isSeeding ? "Seeding..." : "Seed Mock Data"}
+                                          </button>
+                                        </div>
+                        
+                                        <div className="dashboard-main-column">
+                                          <section className="heatmap-section card">
+                                            <div className="heatmap-header">
+                                              <h3>Activity Heatmap</h3>
+                                              <div className="heatmap-months">
+                                                <span>Jan</span>
+                                                <span>Feb</span>
+                                                <span>Mar</span>
+                                              </div>
+                                            </div>
+                                            <div className="heatmap-grid">
+                                              {getHeatmapData().map((day, idx) => (
+                                                <div 
+                                                  key={idx} 
+                                                  className={`heatmap-cell level-${Math.min(day.count, 4)}`}
+                                                  title={`${day.date}: ${day.count} sessions`}
+                                                />
+                                              ))}
+                                            </div>
+                                            <div className="heatmap-legend">
+                                              <span>Less</span>
+                                              <div className="heatmap-cell level-0" />
+                                              <div className="heatmap-cell level-1" />
+                                              <div className="heatmap-cell level-2" />
+                                              <div className="heatmap-cell level-3" />
+                                              <div className="heatmap-cell level-4" />
+                                              <span>More</span>
+                                            </div>
+                                          </section>
+                        
+                                          <div className="sport-filters">
+                                            {availableSports.map(sport => (
+                                              <button
+                                                key={sport}
+                                                className={`filter-pill ${sportFilter === sport ? 'active' : ''}`}
+                                                onClick={() => setSportFilter(sport)}
+                                              >
+                                                {sport}
+                                              </button>
+                                            ))}
+                                          </div>
+                        
+                                          <section className="chart-section card">
+                                            <h3>Average Score Trend</h3>
+                                            <div className="chart-wrapper">
+                                              <ResponsiveContainer width="100%" height={250}>
+                                                <LineChart data={chartData}>
+                                                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#3f3f4d" />
+                                                  <XAxis dataKey="date" stroke="#a0a0b0" fontSize={12} />
+                                                  <YAxis domain={[0, 100]} stroke="#a0a0b0" fontSize={12} />
+                                                  <Tooltip 
+                                                    contentStyle={{ backgroundColor: '#2b2b36', borderColor: '#3f3f4d', color: '#fff' }}
+                                                    itemStyle={{ color: '#00d2ff' }}
+                                                  />
+                                                  <Line 
+                                                    type="monotone" 
+                                                    dataKey="score" 
+                                                    stroke="#00d2ff" 
+                                                    strokeWidth={3} 
+                                                    dot={{ r: 4, fill: '#00d2ff' }} 
+                                                    activeDot={{ r: 6, stroke: '#fff' }} 
+                                                  />
+                                                </LineChart>
+                                              </ResponsiveContainer>
+                                            </div>
+                                          </section>
+                        
+                                          <section className="history-row">
+                                            <h3>Recent Sessions</h3>
+                                            <div className="recent-sessions-grid">
+                                              {filteredHistory.slice(0, 8).map((session) => (
+                                                <div 
+                                                  key={session.id} 
+                                                  className="session-thumbnail-card"
+                                                  onClick={() => setSelectedSession(session)}
+                                                >
+                                                  <HoverVideo 
+                                                    src={session.overlay_url || session.video_url} 
+                                                    className="session-hover-video"
+                                                  />
+                                                  <div className="session-thumb-info">
+                                                    <span className="session-thumb-exercise">{session.exercise}</span>
+                                                    <span className="session-thumb-score">{session.score}%</span>
+                                                  </div>
+                                                </div>
+                                              ))}
+                                            </div>
+                                          </section>
+                                        </div>
+                        
+                                        <div className="dashboard-side-column">
+                                          <div className="kpi-card best-form-card card">
+                                            <h4>All-Time Best Form</h4>
+                                            {allTimeBest ? (
+                                              <>
+                                                <video 
+                                                  src={allTimeBest.overlay_url || allTimeBest.video_url} 
+                                                  muted autoPlay loop playsInline 
+                                                />
+                                                <div className="kpi-value">{allTimeBest.score}%</div>
+                                                <div className="kpi-label">{allTimeBest.exercise}</div>
+                                              </>
+                                            ) : <p>No sessions yet</p>}
+                                          </div>
+                        
+                                          <div className="kpi-card card">
+                                            <h4>Overall Average Score</h4>
+                                            <div className="kpi-value-large">{overallAvg}%</div>
+                                            <div className="kpi-label">Across {filteredHistory.length} sessions</div>
+                                          </div>
+                        
+                                          <div className="kpi-card card latest-note-card">
+                                            <h4>Latest Coach Note</h4>
+                                            <div 
+                                              className="advice-text"
+                                              dangerouslySetInnerHTML={{ __html: formatAdvice(latestNote) }} 
+                                            />
+                                          </div>
+                                        </div>
+                                      </div>
+                                    )}
+                                                {activeView === 'sessions' && (
                           <div className="sessions-view">
                             <div className="sessions-header">
                               <h2>Workout Sessions</h2>
