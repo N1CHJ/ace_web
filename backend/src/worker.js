@@ -389,45 +389,35 @@ export default {
               
               // --- D1 PERSISTENCE ---
               try {
-                  const validReps = (statsObj.reps || []).filter(r => typeof r.Score === 'number');
-                  const avgScore = validReps.length > 0 
-                      ? Math.round(validReps.reduce((a, b) => a + b.Score, 0) / validReps.length) 
-                      : 0;
+                const validReps = (statsObj.reps || []).filter(r => typeof r.Score === 'number');
+                const avgScore = validReps.length > 0 
+                    ? Math.round(validReps.reduce((a, b) => a + b.Score, 0) / validReps.length) 
+                    : 0;
 
-                  // 1. Insert Session
-                  await env.DB.prepare(`
-                      INSERT INTO Sessions (id, user_id, exercise, score, advice, video_url, overlay_url, ideal_url)
-                      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                  `).bind(
-                      prediction.id,
-                      1, // Default Admin Athlete
-                      input.exercise_name,
-                      avgScore,
-                      coachingAdvice,
-                      uploadedUrl,
-                      overlayUrl,
-                      idealUrl
-                  ).run();
+                // 1. Insert Session
+                await env.DB.prepare(`
+                    INSERT INTO Sessions (id, user_id, exercise, score, advice, video_url, overlay_url, ideal_url)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                `).bind(
+                    prediction.id, 1, input.exercise_name, avgScore, coachingAdvice, uploadedUrl, overlayUrl, idealUrl
+                ).run();
 
-                  // 2. Insert Reps
-                  if (statsObj.reps && statsObj.reps.length > 0) {
-                      const statements = statsObj.reps.map(rep => {
-                          return env.DB.prepare(`
-                              INSERT INTO Reps (session_id, rep_number, score, issues)
-                              VALUES (?, ?, ?, ?)
-                          `).bind(
-                              prediction.id,
-                              rep.Rep,
-                              rep.Score || 0,
-                              JSON.stringify(rep.Issues || [])
-                          );
-                      });
-                      await env.DB.batch(statements);
-                  }
-                  console.log("✅ D1 Persistence Complete");
-              } catch (d1Err) {
-                  console.error("❌ D1 INSERT ERROR:", d1Err);
-              }
+                // 2. Insert Reps
+                if (statsObj.reps && statsObj.reps.length > 0) {
+                    const statements = statsObj.reps.map(rep => {
+                        return env.DB.prepare(`
+                            INSERT INTO Reps (session_id, rep_number, score, issues)
+                            VALUES (?, ?, ?, ?)
+                        `).bind(prediction.id, rep.Rep, rep.Score || 0, JSON.stringify(rep.Issues || []));
+                    });
+                    await env.DB.batch(statements);
+                }
+                console.log("✅ D1 Persistence Complete");
+            } catch (d1Err) {
+                console.error("❌ D1 INSERT ERROR:", d1Err);
+            }
+
+              await env.ACE_BUCKET.put(`feedback/${prediction.id}.json`, JSON.stringify(resultPayload));
 
               // B. SAVE TO DEMO KEY IF IT WAS A DEMO RUN
               if (input.is_demo) {

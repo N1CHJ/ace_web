@@ -257,6 +257,9 @@ function App() {
           if (data.status === "succeeded") {
             if (data.urls) setVideoUrls(data.urls);
             if (data.advice) setAdvice(data.advice);
+            
+            fetchDashboard(); 
+            
             return;
           }
         }
