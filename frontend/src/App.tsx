@@ -131,16 +131,23 @@ function App() {
   };
 
   const handleDeleteSession = async (id: string) => {
-    if (!window.confirm("Are you sure you want to delete this session?")) return;
-
-    try {
-      // Placeholder for backend call
-      // await fetch(`${WORKER_URL}/delete-session?id=${id}`, { method: 'DELETE' });
-      
-      setDashboardHistory(prev => prev.filter(s => s.id !== id));
-      setSelectedSession(null);
-    } catch (e) {
-      console.error("Delete error:", e);
+    if (window.confirm("Are you sure you want to permanently delete this session?")) {
+      try {
+        const res = await fetch(`${WORKER_URL}/session?id=${id}`, {
+          method: 'DELETE'
+        });
+        
+        if (res.ok) {
+          // Remove from local state
+          setDashboardHistory(prev => prev.filter(s => s.id !== id));
+          // Route back to previous view
+          setSelectedSession(null);
+        } else {
+          alert("Failed to delete session from the database.");
+        }
+      } catch (e) {
+        console.error("Delete request failed:", e);
+      }
     }
   };
 
@@ -659,6 +666,8 @@ function App() {
                                                 <video 
                                                   src={allTimeBest.overlay_url || allTimeBest.video_url} 
                                                   muted autoPlay loop playsInline 
+                                                  onClick={() => setSelectedSession(allTimeBest)}
+                                                  className="cursor-pointer"
                                                 />
                                                 <div className="kpi-value">{allTimeBest.score}%</div>
                                                 <div className="kpi-label">{allTimeBest.exercise}</div>

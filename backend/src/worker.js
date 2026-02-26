@@ -491,6 +491,24 @@ export default {
         const r = await fetch(`https://api.replicate.com/v1/predictions/${id}`, { headers: { "Authorization": `Token ${env.REPLICATE_API_TOKEN}` } });
         return new Response(JSON.stringify(await r.json()), { headers: corsHeaders });
       }
+
+    // --- ROUTE: DELETE /session ---
+    if (request.method === "DELETE" && url.pathname.endsWith("/session")) {
+        const id = url.searchParams.get("id");
+        if (!id) return new Response("Missing ID", { status: 400, headers: corsHeaders });
+        
+        try {
+            // Delete Reps first to respect foreign key constraints
+            await env.DB.prepare("DELETE FROM Reps WHERE session_id = ?").bind(id).run();
+            // Delete the main Session
+            await env.DB.prepare("DELETE FROM Sessions WHERE id = ?").bind(id).run();
+            
+            return new Response(JSON.stringify({ success: true }), { headers: corsHeaders });
+        } catch (err) {
+            console.error("❌ DELETE ERROR:", err.message);
+            return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: corsHeaders });
+        }
+    }
       
       return new Response("Not Found", { status: 404, headers: corsHeaders });
   },

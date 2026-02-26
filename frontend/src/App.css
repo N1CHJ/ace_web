@@ -773,12 +773,17 @@ th {
 
 .detailed-video-player {
   width: 100%;
-  max-height: 60vh; /* Prevents the video from being taller than 60% of the viewport height */
-  object-fit: contain; /* Ensures the whole video is visible without cropping */
-  background-color: #000; /* Adds black bars if the aspect ratio doesn't perfectly match */
+  max-height: 60vh;
+  object-fit: contain !important; /* Forces the video to scale without cropping */
+  background-color: #000;
   border-radius: 12px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
   margin-bottom: 20px;
+  display: block;
+}
+
+.cursor-pointer {
+  cursor: pointer;
 }
 
 .kpi-subtitle {
