@@ -42,9 +42,10 @@ interface Session {
   score: number;
   advice: string;
   video_url: string;
-  overlay_url: string;
-  ideal_url: string;
+  overlay_url?: string;
+  ideal_url?: string;
   created_at: string;
+  stats?: string;
 }
 
 interface DemoResponse {
@@ -58,12 +59,45 @@ interface DemoResponse {
   id?: string;
 }
 
+const HoverVideo = ({ src, className, onClick }: { src: string; className?: string; onClick?: () => void }) => {
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  const handleMouseEnter = () => {
+    videoRef.current?.play().catch(() => {});
+  };
+
+  const handleMouseLeave = () => {
+    if (videoRef.current) {
+      videoRef.current.pause();
+      videoRef.current.currentTime = 0;
+    }
+  };
+
+  return (
+    <video
+      ref={videoRef}
+      src={src}
+      className={className}
+      muted
+      playsInline
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+      onClick={onClick}
+    />
+  );
+};
+
 function App() {
   // New Auth State
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [activeView, setActiveView] = useState<'dashboard' | 'analyze'>('dashboard');
+
+  // New Dashboard States
+  const [sportFilter, setSportFilter] = useState('All');
+  const [selectedSession, setSelectedSession] = useState<Session | null>(null);
+  const [isSeeding, setIsSeeding] = useState(false);
 
   // Existing State
   const [task, setTask] = useState<'analyze' | 'ingest_reference'>('analyze');
@@ -80,6 +114,25 @@ function App() {
   const [dashboardHistory, setDashboardHistory] = useState<Session[]>([]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const seedMockData = async () => {
+    setIsSeeding(true);
+    try {
+      const res = await fetch(`${WORKER_URL}/seed-mock-data`, { method: "POST" });
+      if (res.ok) {
+        alert("60 sessions seeded successfully!");
+        fetchDashboard();
+      }
+    } catch (e) {
+      console.error("Seeding error:", e);
+    } finally {
+      setIsSeeding(false);
+    }
+  };
+
+  const filteredHistory = sportFilter === 'All' 
+    ? dashboardHistory 
+    : dashboardHistory.filter(s => s.exercise === sportFilter);
 
   useEffect(() => {
     loadSports();
@@ -301,7 +354,7 @@ function App() {
 
   // Grouped by day for Line Chart (Average Score vs. Date)
   const chartData = Object.values(
-    dashboardHistory.reduce((acc, session) => {
+    filteredHistory.reduce((acc, session) => {
       const dateStr = new Date(session.created_at).toISOString().split('T')[0];
       if (!acc[dateStr]) acc[dateStr] = { dateStr, score: 0, count: 0 };
       acc[dateStr].score += session.score;
@@ -322,7 +375,7 @@ function App() {
   const getHeatmapData = () => {
     const today = new Date();
     const heatmap = [];
-    const activityMap = dashboardHistory.reduce((acc, session) => {
+    const activityMap = filteredHistory.reduce((acc, session) => {
       const dateStr = new Date(session.created_at).toISOString().split('T')[0];
       acc[dateStr] = (acc[dateStr] || 0) + 1;
       return acc;
@@ -341,14 +394,16 @@ function App() {
   };
 
   // KPI Calculations
-  const allTimeBest = [...dashboardHistory].sort((a, b) => b.score - a.score)[0];
-  const sortedHistory = [...dashboardHistory].sort((a, b) => 
+  const allTimeBest = [...filteredHistory].sort((a, b) => b.score - a.score)[0];
+  const sortedHistory = [...filteredHistory].sort((a, b) => 
     new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
   );
-  const overallAvg = dashboardHistory.length 
-    ? Math.round(dashboardHistory.reduce((acc, s) => acc + s.score, 0) / dashboardHistory.length) 
+  const overallAvg = filteredHistory.length 
+    ? Math.round(filteredHistory.reduce((acc, s) => acc + s.score, 0) / filteredHistory.length) 
     : 0;
   const latestNote = sortedHistory[0]?.advice || "No sessions yet.";
+
+  const availableSports = ["All", ...new Set(dashboardHistory.map(s => s.exercise))];
 
   if (!isAuthenticated) {
     return (
@@ -411,98 +466,181 @@ function App() {
         </div>
       </nav>
 
-      <main className="main-content">
-        {activeView === 'dashboard' ? (
-          <div className="dashboard-grid">
-            <div className="analytics-column">
-              <section className="heatmap-section card">
-                <h3>Activity Heatmap</h3>
-                <div className="heatmap-grid">
-                  {getHeatmapData().map((day, idx) => (
-                    <div 
-                      key={idx} 
-                      className={`heatmap-cell level-${Math.min(day.count, 4)}`}
-                      title={`${day.date}: ${day.count} sessions`}
-                    />
-                  ))}
-                </div>
-              </section>
-
-              <section className="chart-section card">
-                <h3>Average Score Trend</h3>
-                <div className="chart-wrapper">
-                  <ResponsiveContainer width="100%" height={250}>
-                    <LineChart data={chartData}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#3f3f4d" />
-                      <XAxis dataKey="date" stroke="#a0a0b0" fontSize={12} />
-                      <YAxis domain={[0, 100]} stroke="#a0a0b0" fontSize={12} />
-                      <Tooltip 
-                        contentStyle={{ backgroundColor: '#2b2b36', borderColor: '#3f3f4d', color: '#fff' }}
-                        itemStyle={{ color: '#00d2ff' }}
-                      />
-                      <Line 
-                        type="monotone" 
-                        dataKey="score" 
-                        stroke="#00d2ff" 
-                        strokeWidth={3} 
-                        dot={{ r: 4, fill: '#00d2ff' }} 
-                        activeDot={{ r: 6, stroke: '#fff' }} 
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              </section>
-            </div>
-
-            <div className="kpi-column">
-              <div className="kpi-card best-form-card card">
-                <h4>All-Time Best Form</h4>
-                {allTimeBest ? (
-                  <>
-                    <video 
-                      src={allTimeBest.overlay_url || allTimeBest.video_url} 
-                      muted autoPlay loop playsInline 
-                    />
-                    <div className="kpi-value">{allTimeBest.score}%</div>
-                    <div className="kpi-label">{allTimeBest.exercise}</div>
-                  </>
-                ) : <p>No sessions yet</p>}
-              </div>
-
-              <div className="kpi-card card">
-                <h4>Overall Average Score</h4>
-                <div className="kpi-value-large">{overallAvg}%</div>
-                <div className="kpi-label">Across {dashboardHistory.length} sessions</div>
-              </div>
-
-              <div className="kpi-card card latest-note-card">
-                <h4>Latest Coach Note</h4>
-                <div 
-                  className="advice-text"
-                  dangerouslySetInnerHTML={{ __html: formatAdvice(latestNote) }} 
-                />
-              </div>
-            </div>
-
-            <section className="history-row">
-              <h3>Recent Sessions</h3>
-              <div className="recent-sessions-grid">
-                {dashboardHistory.map((session) => (
-                  <div key={session.id} className="session-thumbnail-card">
-                    <video 
-                      src={session.overlay_url || session.video_url} 
-                      muted autoPlay loop playsInline 
-                    />
-                    <div className="session-thumb-info">
-                      <span className="session-thumb-exercise">{session.exercise}</span>
-                      <span className="session-thumb-score">{session.score}%</span>
+            <main className="main-content">
+              {activeView === 'dashboard' ? (
+                selectedSession ? (
+                  <div className="detailed-session-view">
+                    <button className="btn-back" onClick={() => setSelectedSession(null)}>
+                      ← Back to Dashboard
+                    </button>
+                    
+                    <div className="drilldown-header">
+                      <h2>{selectedSession.exercise} Analysis</h2>
+                      <span className="drilldown-date">
+                        {new Date(selectedSession.created_at).toLocaleDateString()}
+                      </span>
+                    </div>
+      
+                    <div className="drilldown-grid">
+                      <div className="drilldown-video-card card">
+                        <video 
+                          src={selectedSession.overlay_url || selectedSession.video_url} 
+                          muted autoPlay loop playsInline 
+                        />
+                      </div>
+      
+                      <div className="drilldown-info">
+                        <div className="feedback-container card">
+                          <h3>🤖 Coach's Feedback</h3>
+                          <div dangerouslySetInnerHTML={{ __html: formatAdvice(selectedSession.advice) }} />
+                        </div>
+      
+                        {selectedSession.stats && (
+                          <div className="stats-container card">
+                            <h3>Rep-by-Rep Scores</h3>
+                            <table>
+                              <thead>
+                                <tr>
+                                  <th>Rep</th>
+                                  <th>Score</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {JSON.parse(selectedSession.stats).reps.map((rep: any, idx: number) => (
+                                  <tr key={idx}>
+                                    <td>{rep.Rep}</td>
+                                    <td className={rep.Score >= 80 ? 'score-good' : 'score-bad'}>
+                                      {rep.Score}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
-                ))}
-              </div>
-            </section>
-          </div>
-        ) : (
+                ) : (
+                              <div className="dashboard-grid">
+                                <div className="dashboard-controls">
+                                  <button 
+                                    className="btn-seed" 
+                                    onClick={seedMockData} 
+                                    disabled={isSeeding}
+                                  >
+                                    {isSeeding ? "Seeding..." : "Seed Mock Data"}
+                                  </button>
+                                </div>
+                  
+                                <div className="analytics-column">
+                  
+                      <section className="heatmap-section card">
+                        <h3>Activity Heatmap</h3>
+                        <div className="heatmap-grid">
+                          {getHeatmapData().map((day, idx) => (
+                            <div 
+                              key={idx} 
+                              className={`heatmap-cell level-${Math.min(day.count, 4)}`}
+                              title={`${day.date}: ${day.count} sessions`}
+                            />
+                          ))}
+                        </div>
+                      </section>
+      
+                      <div className="sport-filters">
+                        {availableSports.map(sport => (
+                          <button
+                            key={sport}
+                            className={`filter-pill ${sportFilter === sport ? 'active' : ''}`}
+                            onClick={() => setSportFilter(sport)}
+                          >
+                            {sport}
+                          </button>
+                        ))}
+                      </div>
+      
+                      <section className="chart-section card">
+                        <h3>Average Score Trend</h3>
+                        <div className="chart-wrapper">
+                          <ResponsiveContainer width="100%" height={250}>
+                            <LineChart data={chartData}>
+                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#3f3f4d" />
+                              <XAxis dataKey="date" stroke="#a0a0b0" fontSize={12} />
+                              <YAxis domain={[0, 100]} stroke="#a0a0b0" fontSize={12} />
+                              <Tooltip 
+                                contentStyle={{ backgroundColor: '#2b2b36', borderColor: '#3f3f4d', color: '#fff' }}
+                                itemStyle={{ color: '#00d2ff' }}
+                              />
+                              <Line 
+                                type="monotone" 
+                                dataKey="score" 
+                                stroke="#00d2ff" 
+                                strokeWidth={3} 
+                                dot={{ r: 4, fill: '#00d2ff' }} 
+                                activeDot={{ r: 6, stroke: '#fff' }} 
+                              />
+                            </LineChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </section>
+                    </div>
+      
+                    <div className="kpi-column">
+                      <div className="kpi-card best-form-card card">
+                        <h4>All-Time Best Form</h4>
+                        {allTimeBest ? (
+                          <>
+                            <video 
+                              src={allTimeBest.overlay_url || allTimeBest.video_url} 
+                              muted autoPlay loop playsInline 
+                            />
+                            <div className="kpi-value">{allTimeBest.score}%</div>
+                            <div className="kpi-label">{allTimeBest.exercise}</div>
+                          </>
+                        ) : <p>No sessions yet</p>}
+                      </div>
+      
+                      <div className="kpi-card card">
+                        <h4>Overall Average Score</h4>
+                        <div className="kpi-value-large">{overallAvg}%</div>
+                        <div className="kpi-label">Across {filteredHistory.length} sessions</div>
+                      </div>
+      
+                      <div className="kpi-card card latest-note-card">
+                        <h4>Latest Coach Note</h4>
+                        <div 
+                          className="advice-text"
+                          dangerouslySetInnerHTML={{ __html: formatAdvice(latestNote) }} 
+                        />
+                      </div>
+                    </div>
+      
+                    <section className="history-row">
+                      <h3>Recent Sessions</h3>
+                      <div className="recent-sessions-grid">
+                        {filteredHistory.map((session) => (
+                          <div 
+                            key={session.id} 
+                            className="session-thumbnail-card"
+                            onClick={() => setSelectedSession(session)}
+                          >
+                            <HoverVideo 
+                              src={session.overlay_url || session.video_url} 
+                              className="session-hover-video"
+                            />
+                            <div className="session-thumb-info">
+                              <span className="session-thumb-exercise">{session.exercise}</span>
+                              <span className="session-thumb-score">{session.score}%</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  </div>
+                )
+              ) : (
+      
           <div className="analyze-view">
             <div className="upload-section card">
               <div className="tabs">

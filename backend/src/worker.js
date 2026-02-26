@@ -155,12 +155,50 @@ export default {
         return new Response(JSON.stringify(config), { headers: corsHeaders });
     }
 
+    // --- ROUTE: POST /seed-mock-data ---
+    if (request.method === "POST" && url.pathname.endsWith("/seed-mock-data")) {
+        try {
+            const sportsList = ["Back Squat", "Golf Drive", "Tennis Serve"];
+            const now = Date.now();
+            const statements = [];
+            
+            for(let i=0; i<60; i++) {
+                const sessionId = `mock-${now}-${i}`;
+                const date = new Date(now - Math.random() * 30 * 24 * 60 * 60 * 1000).toISOString();
+                const score = Math.floor(Math.random() * 35) + 65;
+                const advice = "Mock Coach Note: Exceptional control. Keep your chest up and drive evenly through the eccentric phase.";
+                const videoUrl = "https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4";
+                
+                statements.push(env.DB.prepare(`
+                    INSERT INTO Sessions (id, user_id, exercise, score, advice, video_url, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                `).bind(sessionId, 1, sportsList[Math.floor(Math.random() * sportsList.length)], score, advice, videoUrl, date));
+
+                const reps = [{ Rep: 1, Score: score+2 }, { Rep: 2, Score: score-4 }, { Rep: 3, Score: score+1 }];
+                reps.forEach(rep => {
+                    statements.push(env.DB.prepare(`
+                        INSERT INTO Reps (session_id, rep_number, score, issues)
+                        VALUES (?, ?, ?, ?)
+                    `).bind(sessionId, rep.Rep, rep.Score, JSON.stringify([])));
+                });
+            }
+            
+            await env.DB.batch(statements);
+            return new Response(JSON.stringify({ success: true, message: "60 mock sessions seeded." }), { headers: corsHeaders });
+        } catch (err) {
+            return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: corsHeaders });
+        }
+    }
+
     // --- ROUTE: GET /dashboard ---
     if (request.method === "GET" && url.pathname.endsWith("/dashboard")) {
         try {
-            const { results } = await env.DB.prepare(
-                "SELECT * FROM Sessions ORDER BY created_at DESC LIMIT 10"
-            ).all();
+            // Join with Reps to get stats in the same response
+            const { results } = await env.DB.prepare(`
+                SELECT s.*, 
+                (SELECT json_object('reps', json_group_array(json_object('Rep', r.rep_number, 'Score', r.score))) FROM Reps r WHERE r.session_id = s.id) as stats
+                FROM Sessions s ORDER BY created_at DESC
+            `).all();
             return new Response(JSON.stringify(results), { headers: corsHeaders });
         } catch (err) {
             return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: corsHeaders });
