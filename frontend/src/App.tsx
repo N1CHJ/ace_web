@@ -63,6 +63,7 @@ function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [activeView, setActiveView] = useState<'dashboard' | 'analyze'>('dashboard');
 
   // Existing State
   const [task, setTask] = useState<'analyze' | 'ingest_reference'>('analyze');
@@ -77,7 +78,6 @@ function App() {
   const [stats, setStats] = useState<StatsObj | null>(null);
   const [isLoadingSports, setIsLoadingSports] = useState<boolean>(true);
   const [dashboardHistory, setDashboardHistory] = useState<Session[]>([]);
-  const [showUploadControls, setShowUploadControls] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -147,6 +147,7 @@ function App() {
         if (result.data.stats) setStats(result.data.stats);
         if (result.data.urls) setVideoUrls(result.data.urls);
         if (result.data.advice) setAdvice(result.data.advice);
+        setActiveView('dashboard');
       } else if (result.triggering && result.id) {
         setStatus("⚙️ Demo data missing. Generating fresh analysis (approx 30s)...");
         pollStatus(result.id);
@@ -293,22 +294,67 @@ function App() {
     setUsername('');
     setPassword('');
     resetUI();
+    setActiveView('dashboard');
   };
 
-  // Process data for Recharts
-  const chartData = [...dashboardHistory]
-    .reverse()
-    .map(session => ({
-      date: new Date(session.created_at).toLocaleDateString(),
-      score: session.score,
-      exercise: session.exercise
+  // --- Dashboard Data Transformations ---
+
+  // Grouped by day for Line Chart (Average Score vs. Date)
+  const chartData = Object.values(
+    dashboardHistory.reduce((acc, session) => {
+      const dateStr = new Date(session.created_at).toISOString().split('T')[0];
+      if (!acc[dateStr]) acc[dateStr] = { dateStr, score: 0, count: 0 };
+      acc[dateStr].score += session.score;
+      acc[dateStr].count += 1;
+      return acc;
+    }, {} as Record<string, { dateStr: string; score: number; count: number }>)
+  )
+    .sort((a, b) => a.dateStr.localeCompare(b.dateStr))
+    .map(d => ({
+      date: new Date(d.dateStr + 'T00:00:00').toLocaleDateString('en-US', { 
+        month: 'short', 
+        day: 'numeric' 
+      }),
+      score: Math.round(d.score / d.count)
     }));
+
+  // Heatmap Data (Activity frequency over the last 12 weeks = 84 days)
+  const getHeatmapData = () => {
+    const today = new Date();
+    const heatmap = [];
+    const activityMap = dashboardHistory.reduce((acc, session) => {
+      const dateStr = new Date(session.created_at).toISOString().split('T')[0];
+      acc[dateStr] = (acc[dateStr] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+
+    for (let i = 83; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(today.getDate() - i);
+      const dateStr = d.toISOString().split('T')[0];
+      heatmap.push({
+        date: dateStr,
+        count: activityMap[dateStr] || 0
+      });
+    }
+    return heatmap;
+  };
+
+  // KPI Calculations
+  const allTimeBest = [...dashboardHistory].sort((a, b) => b.score - a.score)[0];
+  const sortedHistory = [...dashboardHistory].sort((a, b) => 
+    new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
+  const overallAvg = dashboardHistory.length 
+    ? Math.round(dashboardHistory.reduce((acc, s) => acc + s.score, 0) / dashboardHistory.length) 
+    : 0;
+  const latestNote = sortedHistory[0]?.advice || "No sessions yet.";
 
   if (!isAuthenticated) {
     return (
       <div className="landing-page">
         <div className="auth-card">
-          <h1>Welcome to ACE Athlete</h1>
+          <h1>ACE Athlete</h1>
           <form onSubmit={handleLogin} className="auth-form">
             <input
               type="text"
@@ -341,25 +387,123 @@ function App() {
   }
 
   return (
-    <div className="dashboard-layout">
-      <header className="dashboard-header">
-        <div className="logo">🏋️ ACE Athlete</div>
-        <div className="user-nav">
-          <span>Welcome, <strong>{username}</strong></span>
+    <div className="app-container">
+      <nav className="sidebar">
+        <div className="sidebar-header">
+          <span className="sidebar-logo">ACE Athlete</span>
+        </div>
+        <div className="sidebar-menu">
+          <button 
+            className={`menu-item ${activeView === 'dashboard' ? 'active' : ''}`}
+            onClick={() => setActiveView('dashboard')}
+          >
+            📊 Dashboard
+          </button>
+          <button 
+            className={`menu-item ${activeView === 'analyze' ? 'active' : ''}`}
+            onClick={() => setActiveView('analyze')}
+          >
+            📹 Analyze Video
+          </button>
+        </div>
+        <div className="sidebar-footer">
           <button onClick={handleLogout} className="btn-logout">Log Out</button>
         </div>
-      </header>
+      </nav>
 
-      <main className="dashboard-content">
-        <div className="dashboard-controls">
-          <button 
-            className="btn-upload-toggle" 
-            onClick={() => setShowUploadControls(!showUploadControls)}
-          >
-            {showUploadControls ? "Close Upload" : "Upload New Video"}
-          </button>
+      <main className="main-content">
+        {activeView === 'dashboard' ? (
+          <div className="dashboard-grid">
+            <div className="analytics-column">
+              <section className="heatmap-section card">
+                <h3>Activity Heatmap</h3>
+                <div className="heatmap-grid">
+                  {getHeatmapData().map((day, idx) => (
+                    <div 
+                      key={idx} 
+                      className={`heatmap-cell level-${Math.min(day.count, 4)}`}
+                      title={`${day.date}: ${day.count} sessions`}
+                    />
+                  ))}
+                </div>
+              </section>
 
-          {showUploadControls && (
+              <section className="chart-section card">
+                <h3>Average Score Trend</h3>
+                <div className="chart-wrapper">
+                  <ResponsiveContainer width="100%" height={250}>
+                    <LineChart data={chartData}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#3f3f4d" />
+                      <XAxis dataKey="date" stroke="#a0a0b0" fontSize={12} />
+                      <YAxis domain={[0, 100]} stroke="#a0a0b0" fontSize={12} />
+                      <Tooltip 
+                        contentStyle={{ backgroundColor: '#2b2b36', borderColor: '#3f3f4d', color: '#fff' }}
+                        itemStyle={{ color: '#00d2ff' }}
+                      />
+                      <Line 
+                        type="monotone" 
+                        dataKey="score" 
+                        stroke="#00d2ff" 
+                        strokeWidth={3} 
+                        dot={{ r: 4, fill: '#00d2ff' }} 
+                        activeDot={{ r: 6, stroke: '#fff' }} 
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </section>
+            </div>
+
+            <div className="kpi-column">
+              <div className="kpi-card best-form-card card">
+                <h4>All-Time Best Form</h4>
+                {allTimeBest ? (
+                  <>
+                    <video 
+                      src={allTimeBest.overlay_url || allTimeBest.video_url} 
+                      muted autoPlay loop playsInline 
+                    />
+                    <div className="kpi-value">{allTimeBest.score}%</div>
+                    <div className="kpi-label">{allTimeBest.exercise}</div>
+                  </>
+                ) : <p>No sessions yet</p>}
+              </div>
+
+              <div className="kpi-card card">
+                <h4>Overall Average Score</h4>
+                <div className="kpi-value-large">{overallAvg}%</div>
+                <div className="kpi-label">Across {dashboardHistory.length} sessions</div>
+              </div>
+
+              <div className="kpi-card card latest-note-card">
+                <h4>Latest Coach Note</h4>
+                <div 
+                  className="advice-text"
+                  dangerouslySetInnerHTML={{ __html: formatAdvice(latestNote) }} 
+                />
+              </div>
+            </div>
+
+            <section className="history-row">
+              <h3>Recent Sessions</h3>
+              <div className="recent-sessions-grid">
+                {dashboardHistory.map((session) => (
+                  <div key={session.id} className="session-thumbnail-card">
+                    <video 
+                      src={session.overlay_url || session.video_url} 
+                      muted autoPlay loop playsInline 
+                    />
+                    <div className="session-thumb-info">
+                      <span className="session-thumb-exercise">{session.exercise}</span>
+                      <span className="session-thumb-score">{session.score}%</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          </div>
+        ) : (
+          <div className="analyze-view">
             <div className="upload-section card">
               <div className="tabs">
                 <div
@@ -427,115 +571,70 @@ function App() {
               </div>
               {status && <div className="status">{status}</div>}
             </div>
-          )}
-        </div>
 
-        {/* Current Results Section */}
-        {(videoUrls || advice || stats) && (
-          <section className="results-section">
-            <h2>Current Analysis</h2>
-            {videoUrls && (
-              <div className="video-grid">
-                {videoUrls.uploaded && (
-                  <div className="video-card">
-                    <h4>Your Video</h4>
-                    <video src={videoUrls.uploaded} controls playsInline loop />
+            {(videoUrls || advice || stats) && (
+              <section className="results-section">
+                <h2>Current Analysis</h2>
+                {videoUrls && (
+                  <div className="video-grid">
+                    {videoUrls.uploaded && (
+                      <div className="video-card">
+                        <h4>Your Video</h4>
+                        <video src={videoUrls.uploaded} controls playsInline loop />
+                      </div>
+                    )}
+                    {videoUrls.overlay && (
+                      <div className="video-card">
+                        <h4>AI Overlay</h4>
+                        <video src={videoUrls.overlay} controls playsInline loop />
+                      </div>
+                    )}
+                    {videoUrls.ideal && (
+                      <div className="video-card">
+                        <h4>Pro Reference</h4>
+                        <video src={videoUrls.ideal} controls playsInline loop />
+                      </div>
+                    )}
                   </div>
                 )}
-                {videoUrls.overlay && (
-                  <div className="video-card">
-                    <h4>AI Overlay</h4>
-                    <video src={videoUrls.overlay} controls playsInline loop />
-                  </div>
-                )}
-                {videoUrls.ideal && (
-                  <div className="video-card">
-                    <h4>Pro Reference</h4>
-                    <video src={videoUrls.ideal} controls playsInline loop />
-                  </div>
-                )}
-              </div>
+
+                <div className="analysis-details">
+                  {advice && (
+                    <div className="feedback-container card">
+                      <h3>🤖 Coach's Feedback</h3>
+                      <div dangerouslySetInnerHTML={{ __html: formatAdvice(advice) }} />
+                    </div>
+                  )}
+
+                  {stats && (
+                    <div className="stats-container card">
+                      <h3>Rep-by-Rep Scores</h3>
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Rep</th>
+                            <th>Score</th>
+                            <th>Match</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {stats.reps.map((rep, idx) => (
+                            <tr key={idx}>
+                              <td>{rep.Rep}</td>
+                              <td className={rep.Score >= 80 ? 'score-good' : 'score-bad'}>
+                                {rep.Score}
+                              </td>
+                              <td>{rep.Matched_Ideal || '-'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </section>
             )}
-
-            <div className="analysis-details">
-              {advice && (
-                <div className="feedback-container card">
-                  <h3>🤖 Coach's Feedback</h3>
-                  <div dangerouslySetInnerHTML={{ __html: formatAdvice(advice) }} />
-                </div>
-              )}
-
-              {stats && (
-                <div className="stats-container card">
-                  <h3>Rep-by-Rep Scores</h3>
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Rep</th>
-                        <th>Score</th>
-                        <th>Match</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {stats.reps.map((rep, idx) => (
-                        <tr key={idx}>
-                          <td>{rep.Rep}</td>
-                          <td className={rep.Score >= 80 ? 'score-good' : 'score-bad'}>
-                            {rep.Score}
-                          </td>
-                          <td>{rep.Matched_Ideal || '-'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          </section>
-        )}
-
-        {/* Performance Chart */}
-        <section className="chart-section card">
-          <h3>Performance History</h3>
-          <div className="chart-wrapper">
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="date" />
-                <YAxis domain={[0, 100]} />
-                <Tooltip />
-                <Line 
-                  type="monotone" 
-                  dataKey="score" 
-                  stroke="#007bff" 
-                  strokeWidth={3} 
-                  dot={{ r: 6 }} 
-                  activeDot={{ r: 8 }} 
-                />
-              </LineChart>
-            </ResponsiveContainer>
           </div>
-        </section>
-
-        {/* Recent Sessions */}
-        {dashboardHistory.length > 0 && (
-          <section className="history-section">
-            <h3>Recent Sessions</h3>
-            <div className="video-grid">
-              {dashboardHistory.map((session) => (
-                <div key={session.id} className="video-card session-card">
-                  <div className="session-info">
-                    <strong>{session.exercise}</strong>
-                    <span className={`badge ${session.score >= 80 ? 'good' : 'bad'}`}>
-                      {session.score}%
-                    </span>
-                  </div>
-                  <video src={session.overlay_url || session.video_url} controls playsInline loop />
-                  <div className="session-date">{new Date(session.created_at).toLocaleString()}</div>
-                </div>
-              ))}
-            </div>
-          </section>
         )}
       </main>
     </div>
