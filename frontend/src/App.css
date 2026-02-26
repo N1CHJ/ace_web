@@ -771,6 +771,39 @@ th {
 .score-good { color: var(--success); font-weight: bold; }
 .score-bad { color: var(--danger); font-weight: bold; }
 
+.detailed-video-player {
+  width: 100%;
+  max-height: 60vh; /* Prevents the video from being taller than 60% of the viewport height */
+  object-fit: contain; /* Ensures the whole video is visible without cropping */
+  background-color: #000; /* Adds black bars if the aspect ratio doesn't perfectly match */
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  margin-bottom: 20px;
+}
+
+.kpi-subtitle {
+  font-size: 0.85rem;
+  color: #a0a0b0;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-top: 5px;
+}
+
+/* Style for the new video inside the Coach Note KPI */
+.coach-note-video {
+  width: 100%;
+  border-radius: 8px;
+  margin-top: 15px;
+  cursor: pointer;
+  transition: transform 0.2s;
+  max-height: 200px;
+  object-fit: cover;
+}
+.coach-note-video:hover {
+  transform: scale(1.02);
+  border: 2px solid var(--primary);
+}
+
 @media (max-width: 1100px) {
   .dashboard-grid {
     grid-template-columns: 1fr;

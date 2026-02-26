@@ -415,7 +415,8 @@ function App() {
   const overallAvg = filteredHistory.length 
     ? Math.round(filteredHistory.reduce((acc, s) => acc + s.score, 0) / filteredHistory.length) 
     : 0;
-  const latestNote = sortedHistory[0]?.advice || "No sessions yet.";
+  const latestSession = sortedHistory[0];
+  const latestNote = latestSession?.advice || "No sessions yet.";
 
   const availableSports = ["All", ...new Set(dashboardHistory.map(s => s.exercise))];
 
@@ -506,16 +507,16 @@ function App() {
                           </span>
                         </div>
             
-                        <div className="drilldown-grid">
-                          <div className="drilldown-video-card card">
-                            <video 
-                              src={selectedSession.overlay_url || selectedSession.video_url} 
-                              muted autoPlay loop playsInline 
-                            />
-                          </div>
-            
-                          <div className="drilldown-info">
-                            <div className="feedback-container card">
+                                    <div className="drilldown-grid">
+                                      <div className="drilldown-video-card card">
+                                        <video 
+                                          className="detailed-video-player"
+                                          src={selectedSession.overlay_url || selectedSession.video_url} 
+                                          muted autoPlay loop playsInline 
+                                        />
+                                      </div>
+                        
+                                      <div className="drilldown-info">                            <div className="feedback-container card">
                               <h3>🤖 Coach's Feedback</h3>
                               <div dangerouslySetInnerHTML={{ __html: formatAdvice(selectedSession.advice) }} />
                             </div>
@@ -665,22 +666,41 @@ function App() {
                                             ) : <p>No sessions yet</p>}
                                           </div>
                         
-                                          <div className="kpi-card card">
-                                            <h4>Overall Average Score</h4>
-                                            <div className="kpi-value-large">{overallAvg}%</div>
-                                            <div className="kpi-label">Across {filteredHistory.length} sessions</div>
-                                          </div>
-                        
-                                          <div className="kpi-card card latest-note-card">
-                                            <h4>Latest Coach Note</h4>
-                                            <div 
-                                              className="advice-text"
-                                              dangerouslySetInnerHTML={{ __html: formatAdvice(latestNote) }} 
-                                            />
-                                          </div>
-                                        </div>
-                                      </div>
-                                    )}
+                        <div className="kpi-card card">
+                          <h4>Overall Average Score</h4>
+                          <div className="kpi-value-large">{overallAvg}%</div>
+                          <div className="kpi-subtitle">{sportFilter === 'All' ? 'All Sports' : sportFilter}</div>
+                          <div className="kpi-label">Across {filteredHistory.length} sessions</div>
+                        </div>
+
+                        <div className="kpi-card card latest-note-card">
+                          <h4>Latest Coach Note</h4>
+                          {latestSession && (
+                            <>
+                              <div className="kpi-subtitle" style={{ marginBottom: '10px', color: 'var(--primary)' }}>
+                                {latestSession.exercise}
+                              </div>
+                              <div 
+                                className="advice-text"
+                                dangerouslySetInnerHTML={{ __html: formatAdvice(latestNote) }} 
+                              />
+                              <HoverVideo 
+                                src={latestSession.overlay_url || latestSession.video_url} 
+                                className="coach-note-video"
+                                onClick={() => setSelectedSession(latestSession)}
+                              />
+                            </>
+                          )}
+                          {!latestSession && (
+                            <div 
+                              className="advice-text"
+                              dangerouslySetInnerHTML={{ __html: formatAdvice(latestNote) }} 
+                            />
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                                                 {activeView === 'sessions' && (
                           <div className="sessions-view">
                             <div className="sessions-header">
