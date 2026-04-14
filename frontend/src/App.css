@@ -663,12 +663,62 @@ body {
 .analyze-view {
   max-width: 1000px;
   margin: 0 auto;
+  width: 100%;
 }
 
 .tabs {
   display: flex;
   gap: 15px;
   margin-bottom: 25px;
+  width: 100%;
+}
+
+@media (max-width: 768px) {
+  .analyze-view {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+  
+  .upload-section {
+    padding: 15px;
+    width: 100%;
+  }
+
+  .upload-controls-grid {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .upload-controls-grid select, 
+  .upload-controls-grid input, 
+  .upload-controls-grid .file-input-wrapper {
+    width: 100% !important;
+    max-width: 100%;
+  }
+
+  .video-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .video-card {
+    width: 100%;
+    aspect-ratio: 9/16;
+  }
+
+  .analysis-details {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .feedback-container, .stats-container {
+    width: 100%;
+    overflow-wrap: break-word;
+    word-wrap: break-word;
+  }
 }
 
 .tab {
