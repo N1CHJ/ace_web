@@ -889,22 +889,28 @@ th {
     display: flex;
     border-top: none;
     padding: 0;
-    width: 60px;
+    width: 100px; /* Fixed width to prevent shifting */
     border-left: 1px solid var(--border);
+    flex-shrink: 0;
   }
 
   .btn-logout {
     height: 100%;
+    width: 100%;
     border: none;
     border-radius: 0;
-    font-size: 1.2rem;
+    font-size: 0.8rem; /* Smaller text for mobile */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding: 0 5px;
   }
 
   .sidebar-menu {
     flex-direction: row;
     padding: 0;
     gap: 0;
-    width: 100%;
+    flex: 1;
     height: 100%;
   }
 
@@ -913,7 +919,7 @@ th {
     border-radius: 0;
     justify-content: center;
     padding: 0;
-    font-size: 1.2rem;
+    font-size: 1.1rem;
     height: 100%;
   }
 
@@ -928,43 +934,47 @@ th {
     margin-left: 0;
     margin-bottom: 70px;
     padding: 20px;
+    width: 100%;
+    overflow-x: hidden; /* Prevent horizontal scroll on body */
   }
 
-  .sessions-header {
+  .dashboard-grid-layout {
+    display: flex;
     flex-direction: column;
-    align-items: flex-start;
-    gap: 15px;
   }
 
-  .sessions-header h2 {
-    font-size: 1.5rem;
+  .recent-sessions-grid {
+    grid-template-columns: 1fr 1fr; /* Force 2 columns */
+    gap: 12px;
   }
 
-  .kpi-value-large {
-    font-size: 3rem;
+  .sessions-table-card {
+    overflow-x: hidden;
+  }
+  
+  .sessions-table {
+    min-width: 0; /* Remove fixed min-width */
+    font-size: 0.8rem;
   }
 
-  .heatmap-grid {
-    grid-template-columns: repeat(11, 1fr); /* Tighter for mobile */
+  .sessions-table th, .sessions-table td {
+    padding: 10px 8px;
   }
 
-  .heatmap-months {
-    display: none;
+  /* Hide Date column on very small screens or simplify */
+  .sessions-table th:first-child, 
+  .sessions-table td:first-child {
+    display: none; 
   }
 
-  .drilldown-header h2 {
-    font-size: 1.5rem;
+  .tabs {
+    flex-wrap: wrap;
+    gap: 8px;
   }
 
-  .upload-controls-grid {
-    grid-template-columns: 1fr;
+  .tab {
+    flex: 1;
+    text-align: center;
+    font-size: 0.85rem;
+    padding: 8px;
   }
-
-  .video-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .auth-card {
-    padding: 30px 20px;
-  }
-}

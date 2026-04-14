@@ -643,28 +643,6 @@ function App() {
                                               </ResponsiveContainer>
                                             </div>
                                           </section>
-                        
-                                          <section className="history-row">
-                                            <h3>Recent Sessions</h3>
-                                            <div className="recent-sessions-grid">
-                                              {filteredHistory.slice(0, 8).map((session) => (
-                                                <div 
-                                                  key={session.id} 
-                                                  className="session-thumbnail-card"
-                                                  onClick={() => setSelectedSession(session)}
-                                                >
-                                                  <HoverVideo 
-                                                    src={session.overlay_url || session.video_url} 
-                                                    className="session-hover-video"
-                                                  />
-                                                  <div className="session-thumb-info">
-                                                    <span className="session-thumb-exercise">{session.exercise}</span>
-                                                    <span className="session-thumb-score">{session.score}%</span>
-                                                  </div>
-                                                </div>
-                                              ))}
-                                            </div>
-                                          </section>
                                         </div>
                         
                                         <div className="dashboard-side-column">
@@ -717,6 +695,28 @@ function App() {
                           )}
                         </div>
                       </div>
+
+                      <section className="history-row">
+                        <h3>Recent Sessions</h3>
+                        <div className="recent-sessions-grid">
+                          {filteredHistory.slice(0, 8).map((session) => (
+                            <div 
+                              key={session.id} 
+                              className="session-thumbnail-card"
+                              onClick={() => setSelectedSession(session)}
+                            >
+                              <HoverVideo 
+                                src={session.overlay_url || session.video_url} 
+                                className="session-hover-video"
+                              />
+                              <div className="session-thumb-info">
+                                <span className="session-thumb-exercise">{session.exercise}</span>
+                                <span className="session-thumb-score">{session.score}%</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </section>
                     </div>
                   )}
                                                 {activeView === 'sessions' && (
