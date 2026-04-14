@@ -90,6 +90,7 @@ const HoverVideo = ({ src, className, onClick }: { src: string; className?: stri
 function App() {
   // New Auth State
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isGuest, setIsGuest] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [activeView, setActiveView] = useState<'dashboard' | 'analyze' | 'sessions'>('dashboard');
@@ -205,6 +206,7 @@ function App() {
   const runDemo = async () => {
     // Auth bypass for demo
     setIsAuthenticated(true);
+    setIsGuest(true);
     setUsername("Demo Athlete");
     
     resetUI();
@@ -365,6 +367,7 @@ function App() {
 
   const handleLogout = () => {
     setIsAuthenticated(false);
+    setIsGuest(false);
     setUsername('');
     setPassword('');
     resetUI();
@@ -490,7 +493,9 @@ function App() {
           </button>
         </div>
         <div className="sidebar-footer">
-          <button onClick={handleLogout} className="btn-logout">Log Out</button>
+          <button onClick={handleLogout} className="btn-logout">
+            {isGuest ? 'Exit Demo' : 'Log Out'}
+          </button>
         </div>
       </nav>
 
@@ -501,9 +506,11 @@ function App() {
                                 <button className="btn-back" onClick={() => setSelectedSession(null)}>
                                   ← Back
                                 </button>
-                                <button className="btn-delete" onClick={() => handleDeleteSession(selectedSession.id)}>
-                                  Delete Session
-                                </button>
+                                {!isGuest && (
+                                  <button className="btn-delete" onClick={() => handleDeleteSession(selectedSession.id)}>
+                                    Delete Session
+                                  </button>
+                                )}
                               </div>
                               
                               <div className="drilldown-header">
@@ -559,13 +566,15 @@ function App() {
                                     {activeView === 'dashboard' && (
                                       <div className="dashboard-grid-layout">
                                         <div className="dashboard-controls">
-                                          <button 
-                                            className="btn-seed" 
-                                            onClick={seedMockData} 
-                                            disabled={isSeeding}
-                                          >
-                                            {isSeeding ? "Seeding..." : "Seed Mock Data"}
-                                          </button>
+                                          {!isGuest && (
+                                            <button 
+                                              className="btn-seed" 
+                                              onClick={seedMockData} 
+                                              disabled={isSeeding}
+                                            >
+                                              {isSeeding ? "Seeding..." : "Seed Mock Data"}
+                                            </button>
+                                          )}
                                         </div>
                         
                                         <div className="dashboard-main-column">
@@ -769,73 +778,81 @@ function App() {
             
       
           <div className="analyze-view">
-            <div className="upload-section card">
-              <div className="tabs">
-                <div
-                  className={`tab ${task === 'analyze' ? 'active' : ''}`}
-                  onClick={() => setTask('analyze')}
-                >
-                  Analyze Form
-                </div>
-                <div
-                  className={`tab ${task === 'ingest_reference' ? 'active' : ''}`}
-                  onClick={() => setTask('ingest_reference')}
-                >
-                  Admin Ingest
-                </div>
+            {isGuest ? (
+              <div className="guest-cta-card card">
+                <h2>Analyze Your Own Form</h2>
+                <p>Ready to see how you stack up? Sign up for a full account to upload your own videos and get personalized AI coaching.</p>
+                <button className="btn-process" onClick={handleLogout}>Create Account</button>
               </div>
+            ) : (
+              <div className="upload-section card">
+                <div className="tabs">
+                  <div
+                    className={`tab ${task === 'analyze' ? 'active' : ''}`}
+                    onClick={() => setTask('analyze')}
+                  >
+                    Analyze Form
+                  </div>
+                  <div
+                    className={`tab ${task === 'ingest_reference' ? 'active' : ''}`}
+                    onClick={() => setTask('ingest_reference')}
+                  >
+                    Admin Ingest
+                  </div>
+                </div>
 
-              <div className="upload-controls-grid">
-                <select
-                  value={selectedSport}
-                  onChange={(e) => setSelectedSport(e.target.value)}
-                  disabled={isLoadingSports}
-                >
-                  {isLoadingSports ? (
-                    <option>Loading sports...</option>
-                  ) : (
-                    <>
-                      {sports.map((sport) => (
-                        <option key={sport} value={sport}>{sport}</option>
-                      ))}
-                      <option disabled>──────────</option>
-                      <option value="NEW_SPORT_ENTRY">➕ Create New Sport...</option>
-                    </>
+                <div className="upload-controls-grid">
+                  <select
+                    value={selectedSport}
+                    onChange={(e) => setSelectedSport(e.target.value)}
+                    disabled={isLoadingSports}
+                  >
+                    {isLoadingSports ? (
+                      <option>Loading sports...</option>
+                    ) : (
+                      <>
+                        {sports.map((sport) => (
+                          <option key={sport} value={sport}>{sport}</option>
+                        ))}
+                        <option disabled>──────────</option>
+                        <option value="NEW_SPORT_ENTRY">➕ Create New Sport...</option>
+                      </>
+                    )}
+                  </select>
+
+                  {selectedSport === "NEW_SPORT_ENTRY" && (
+                    <input
+                      type="text"
+                      placeholder="New sport name"
+                      value={customSportName}
+                      onChange={(e) => setCustomSportName(e.target.value)}
+                      autoFocus
+                    />
                   )}
-                </select>
 
-                {selectedSport === "NEW_SPORT_ENTRY" && (
-                  <input
-                    type="text"
-                    placeholder="New sport name"
-                    value={customSportName}
-                    onChange={(e) => setCustomSportName(e.target.value)}
-                    autoFocus
-                  />
-                )}
+                  <div className="file-input-wrapper">
+                    <input
+                      type="file"
+                      accept="video/*"
+                      onChange={handleFileChange}
+                      ref={fileInputRef}
+                    />
+                  </div>
 
-                <div className="file-input-wrapper">
-                  <input
-                    type="file"
-                    accept="video/*"
-                    onChange={handleFileChange}
-                    ref={fileInputRef}
-                  />
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={makeOverlay}
+                      onChange={(e) => setMakeOverlay(e.target.checked)}
+                    />
+                    Generate Overlay?
+                  </label>
+
+                  <button className="btn-process" onClick={startProcessing}>Run Processing</button>
                 </div>
-
-                <label className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={makeOverlay}
-                    onChange={(e) => setMakeOverlay(e.target.checked)}
-                  />
-                  Generate Overlay?
-                </label>
-
-                <button className="btn-process" onClick={startProcessing}>Run Processing</button>
+                {status && <div className="status">{status}</div>}
               </div>
-              {status && <div className="status">{status}</div>}
-            </div>
+            )}
 
             {(videoUrls || advice || stats) && (
               <section className="results-section">
